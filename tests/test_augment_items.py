@@ -28,11 +28,11 @@ def test_custom_equipment_optional_rates_order_and_validation(store):
 
 def test_equipment_only_for_recognized_hero_and_destiny_card(store, monkeypatch):
     hint = {"source": "manual", "items": [{"item": "3135", "name": "虚空之杖", "win": None}]}
-    monkeypatch.setattr(store, "augment_items", lambda hid, aid: hint)
+    monkeypatch.setattr(store, "augment_items", lambda hid, aid: hint if aid == "3081" else None)
     store.augments["3081"] = {"id": "3081", "name": "命运之武器", "rarity": "gold"}
     ev = recommend.evaluate(store, "17", ["3081", "1029", "2128"])
     assert ev["slots"][0]["item_hint"] == hint
-    assert "item_hint" not in ev["slots"][1]
+    assert ev["slots"][1]["item_hint"] is not None  # 增强版：其他海克斯也智能提供装备联动指引
     assert "item_hint" not in recommend.evaluate(store, None, ["3081"])["slots"][0]
 
 

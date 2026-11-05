@@ -287,6 +287,15 @@ class BadgeLayer(_Layer):
                 label = NODATA_NOTE
             if r.get("thin") == "too_few":
                 label = "样本太少 · 建议刷新"
+            elif r["verdict"] == "best" and r.get("sample_warning"):
+                label = "相对较好 · 仅供参考"
+            elif r.get("decision_badge"):
+                if r["verdict"] == "best":
+                    label = f"{r['decision_badge']} · 首选"
+                elif r["verdict"] == "reroll":
+                    label = f"{r['decision_badge']} · 建议刷新"
+                elif r["verdict"] == "ok":
+                    label = f"{r['decision_badge']} · 可选"
             lines = []
             if r.get("score") is not None:
                 s = f"{r['score']:+.1f}"
@@ -394,8 +403,10 @@ class BadgeLayer(_Layer):
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(10, 12, 16, 230))
         p.drawRoundedRect(rect, 6, 6)
+        title = hint.get("title") or ("首件传说装备 · " + source)
+        footer = hint.get("footer", "还没出首件传说装备的话，可以考虑")
         p.setPen(QColor(231, 195, 90))
-        p.drawText(QRect(rect.x() + 8, rect.y() + 3, width - 16, 18), Qt.AlignLeft, "首件传说装备 · " + source)
+        p.drawText(QRect(rect.x() + 8, rect.y() + 3, width - 16, 18), Qt.AlignLeft, title)
         p.setPen(QColor(225, 228, 235))
         for i, (row, text) in enumerate(zip(rows, texts)):
             y = rect.y() + 23 + i * 28
@@ -406,8 +417,7 @@ class BadgeLayer(_Layer):
             p.drawText(QRect(rect.x() + 38, y, width - 46, 24), Qt.AlignVCenter,
                        fm.elidedText(text, Qt.ElideRight, width - 46))
         p.setPen(QColor(170, 176, 190))
-        p.drawText(QRect(rect.x() + 8, rect.bottom() - 17, width - 16, 16), Qt.AlignLeft,
-                   "还没出首件传说装备的话，可以考虑")
+        p.drawText(QRect(rect.x() + 8, rect.bottom() - 17, width - 16, 16), Qt.AlignLeft, footer)
         return rect
 
 

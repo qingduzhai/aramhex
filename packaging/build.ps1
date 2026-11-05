@@ -1,4 +1,4 @@
-# 打包：PyInstaller 生成程序目录 → GUI 自检 → Inno Setup 安装版 + 便携版 ZIP + SHA256SUMS.txt。
+﻿# 打包：PyInstaller 生成程序目录 → GUI 自检 → Inno Setup 安装版 + 便携版 ZIP + SHA256SUMS.txt。
 # 用法（PowerShell 7）：pwsh -NoProfile -File packaging/build.ps1 [-PythonExe <python>] [-InnoCompiler <ISCC.exe>] [-PortableOnly] [-TestTag test.1]
 # -PortableOnly：只出便携版（测试版自己用，不需要 Inno Setup）
 # -TestTag：测试包一定要带，版本号变成「1.1.3-test.1」，比正式版 1.1.3 旧，正式版一发就会提示更新。

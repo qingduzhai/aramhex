@@ -213,8 +213,9 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300) 
         meta = store.augments.get(aid, {})
         r.update(name=display_name(aid, meta.get("name", aid)), rarity=meta.get("rarity"), icon=meta.get("icon"),
                  desc=meta.get("desc", ""))
-        if aid == WEAPON_OF_DESTINY and hero_id and hasattr(store, "augment_items"):
-            hint = store.augment_items(hero_id, aid)
+        if hero_id:
+            from . import synergy
+            hint = synergy.get_synergy_item_hint(store, hero_id, aid)
             if hint:
                 r["item_hint"] = hint
         if aid in excluded:
@@ -327,6 +328,16 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300) 
             r["verdict"] = "reroll"
         else:
             r["verdict"] = "ok"
+
+    for r in results:
+        aid = r.get("augment_id")
+        if aid and hero_id:
+            from . import synergy
+            d_tier = synergy.classify_augment_tier(store, hero_id, aid, r.get("win"), r.get("score"), r.get("games"))
+            r["decision_badge"] = d_tier["badge"]
+            r["decision_tag"] = d_tier["tag"]
+            r["decision_summary"] = d_tier["summary"]
+            r["reasons"].insert(0, f"{d_tier['badge']} · {d_tier['summary']}")
 
     if best is None:
         advice = "暂无可靠数据，请自行判断"
