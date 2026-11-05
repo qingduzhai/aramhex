@@ -23,6 +23,23 @@ datas += [("../lolhex/data/item_icons.json", "lolhex/data")]  # 装备、召唤�
 datas += [("../lolhex/data/cacert.pem", "lolhex/data")]  # 根证书（去掉 eMudhra，scripts/make_cacert.py）
 binaries = collect_dynamic_libs("onnxruntime")
 
+# Conda / Windows 原生标准库 DLL 兜底：
+# Conda 会将标准库 C 扩展依赖（ctypes 的 libffi、ssl 的 openssl、lzma/bz2/expat/sqlite3）放在 Library/bin 中，
+# PyInstaller 打包时默认不会从 Library/bin 复制标准库依赖，导致解压到纯净机运行报 _ctypes 或 _ssl 缺失。
+for prefix in [Path(sys.prefix), Path(sys.base_prefix)]:
+    conda_lib_bin = prefix / "Library" / "bin"
+    if conda_lib_bin.is_dir():
+        needed_conda_dlls = [
+            "ffi.dll", "ffi-7.dll", "ffi-8.dll",
+            "libcrypto-3-x64.dll", "libssl-3-x64.dll",
+            "libexpat.dll", "libbz2.dll", "liblzma.dll",
+            "libmpdec-4.dll", "sqlite3.dll", "zlib.dll",
+        ]
+        for dll_name in needed_conda_dlls:
+            dll_file = conda_lib_bin / dll_name
+            if dll_file.exists() and not any(b[0] == str(dll_file) for b in binaries):
+                binaries.append((str(dll_file), "."))
+
 a = Analysis(
     ["launcher.py"],
     pathex=[".."],

@@ -38,6 +38,14 @@ def _crash(text: str) -> None:
         if ctypes.windll.user32.MessageBoxW(None, msg, "海克斯大乱斗助手", 0x4 | 0x10) == 6:  # 是/否 + 错误图标；6 = 是
             import webbrowser
             webbrowser.open(DOWNLOAD_PAGE)
+        return
+    except Exception:
+        pass
+    # 备用弹窗（万一 ctypes 模块损坏）
+    try:
+        import subprocess
+        vbs = f'msgbox "{msg.replace(chr(10), """ & vbCrLf & """)}", 16, "海克斯大乱斗助手"'
+        subprocess.run(["mshta", f"vbscript:Execute('{vbs}:close')"], timeout=10)
     except Exception:
         pass
 

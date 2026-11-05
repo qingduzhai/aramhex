@@ -61,7 +61,11 @@ if (-not $smoke.WaitForExit(180000)) { $smoke.Kill(); throw '自检超时' }
 if ($smoke.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $report)) { throw 'Qt GUI 自检失败，不生成安装包' }
 $gui = Get-Content -Raw -Encoding UTF8 -LiteralPath $report | ConvertFrom-Json
 if (-not $gui.success -or $gui.version -ne $version -or $gui.platform -ne 'windows' -or -not $gui.ocr_ok) { throw "自检结果不对（界面或文字识别）：$($gui | ConvertTo-Json -Compress)" }
-Write-Host "自检通过：Qt $($gui.qt)，文字识别读到「$($gui.ocr_text)」"
+Write-Host "自检通过：Qt $($gui.qt)，文字识别读到 '$($gui.ocr_text)'"
+
+# 进一步验证真实运行时环境（ctypes、ssl、内置统计数据解析）
+& (Join-Path $dist 'AramHex.exe') --refresh
+if ($LASTEXITCODE -ne 0) { throw '核心模块（ctypes / ssl / 数据解析）校验失败' }
 
 if ($TestTag) {
     # 放进同一份程序目录，测试安装版和便携版都默认开启调试；运行时已经支持这个标记。

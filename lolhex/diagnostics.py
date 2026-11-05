@@ -44,7 +44,7 @@ def _system_memory() -> tuple[int, int] | None:
         status.length = ctypes.sizeof(status)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
             return status.available // (1024**2), status.total // (1024**2)
-    except (AttributeError, OSError):
+    except Exception:
         pass
     return None
 
@@ -70,7 +70,7 @@ def _process_memory() -> tuple[int, int, int] | None:
         if fn(k32.GetCurrentProcess(), ctypes.byref(c), c.cb):
             mb = 1024**2
             return c.ws // mb, c.peak_ws // mb, c.private // mb
-    except (AttributeError, OSError):
+    except Exception:
         pass
     return None
 

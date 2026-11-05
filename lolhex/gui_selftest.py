@@ -30,6 +30,11 @@ def _vision_check() -> dict:
 def run(report_path: str) -> int:
     report = {"success": False}
     try:
+        import bz2
+        import ctypes
+        import lzma
+        import sqlite3
+        import ssl
         from PySide6.QtCore import qVersion
         from PySide6.QtGui import QPixmap
         from PySide6.QtNetwork import QNetworkAccessManager
