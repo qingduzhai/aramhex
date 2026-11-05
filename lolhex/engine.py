@@ -143,6 +143,7 @@ class Engine:
             "vision": {"status": "idle", "calibrated": False, "last_scan": None, "blank": False},
             "offer": None, "evaluation": None,
             "champ_select": None,  # {"bench": [...], "team": [...]}，每项带胜率和排名
+            "acquired_augments": [],  # 本局已获得的符文列表 [aid, ...]
         }
 
     # ---------- 生命周期 ----------
@@ -167,6 +168,7 @@ class Engine:
         s["settings"] = {"show_winrate": self.settings.show_winrate, "badge_position": self.settings.badge_position}
         s["hero"] = self.store.heroes.get(s["hero_id"] or "")
         s["candidates"] = [self.store.heroes.get(h, {"id": h}) for h in s["hero_candidates"]]
+        s["acquired_augments"] = list(self.state.get("acquired_augments", []))
         return s
 
     def _set(self, **kw) -> None:
@@ -207,6 +209,36 @@ class Engine:
                 return
             offer["slots"][index] = augment_id
             offer["corrected"] = True
+        self._reevaluate()
+
+    def record_acquired_augment(self, aid: str) -> None:
+        """记录本局选中的海克斯，实时触发多符文联动重算。"""
+        if not aid:
+            return
+        aid_str = str(aid)
+        with self._lock:
+            cur = list(self.state.get("acquired_augments", []))
+            if aid_str not in cur:
+                cur.append(aid_str)
+                self.state["acquired_augments"] = cur
+        log.info("记录局内已持符文：%s，当前持量：%d", aid_str, len(cur))
+        self._reevaluate()
+
+    def remove_acquired_augment(self, index: int) -> None:
+        """移除指定序号的已持符文。"""
+        with self._lock:
+            cur = list(self.state.get("acquired_augments", []))
+            if 0 <= index < len(cur):
+                removed = cur.pop(index)
+                self.state["acquired_augments"] = cur
+                log.info("移除局内已持符文：%s", removed)
+        self._reevaluate()
+
+    def clear_acquired_augments(self) -> None:
+        """清空本局已持符文。"""
+        with self._lock:
+            self.state["acquired_augments"] = []
+        log.info("已清空局内已持符文")
         self._reevaluate()
 
     def rescan(self) -> None:
@@ -557,7 +589,7 @@ class Engine:
             self._last_eval_log = None
             self._evaluation_revision += 1
             self.state.update(hero_id=None, hero_source=None, hero_candidates=[],
-                              offer=None, evaluation=None)
+                              offer=None, evaluation=None, acquired_augments=[])
 
     def _on_game_end(self) -> None:
         self._clear_selection()
@@ -903,10 +935,15 @@ class Engine:
             offer = next_offer if next_offer is not None else previous
             hid = self.state.get("hero_id")
             slots = list(offer["slots"]) if offer else None
+            acquired = list(self.state.get("acquired_augments", []))
         if not offer:
             return None
         with getattr(self.store, "_lock", nullcontext()):
-            ev = recommend.evaluate(self.store, hid, slots, self.settings.smoothing_games)
+            try:
+                ev = recommend.evaluate(self.store, hid, slots, self.settings.smoothing_games,
+                                        acquired_augments=acquired)
+            except TypeError:
+                ev = recommend.evaluate(self.store, hid, slots, self.settings.smoothing_games)
         context = offer.get("_scan_context")
         if context and (invalid := self._scan_invalid_reason(context)):
             self._discard_scan(self._detector, context, invalid)

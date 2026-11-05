@@ -314,6 +314,10 @@ class BadgeLayer(_Layer):
                 meta.append(f"测试服 {r['pbe_games']} 局 胜率{_pct(r['pbe_win'])}")
             if r.get("thin") == "few" or r.get("sample_warning") and r.get("thin") != "too_few":
                 meta.insert(0, "样本偏少")
+            if r.get("combo_synergy") and r["combo_synergy"].get("bonus"):
+                meta.insert(0, f"★ 联动 +{r['combo_synergy']['bonus']:+.1f}")
+            elif r.get("combo_synergy") and r["combo_synergy"].get("penalty"):
+                meta.insert(0, f"⚠ 冲突 {r['combo_synergy']['penalty']:.1f}")
             if not ev.get("hero_id"):  # 只在浮窗里写的话进游戏 5 秒就收起，玩家常常不知道是按全英雄算的
                 meta.insert(0, "未识别英雄 · 按全英雄数据")
             if meta:

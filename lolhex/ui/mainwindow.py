@@ -14,6 +14,7 @@ import threading
 import webbrowser
 from html import escape
 from importlib import resources
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon, QPixmap
@@ -128,6 +129,77 @@ class RankWorker(QThread):
             self.failed.emit("查询出错，请稍后再试")
 
 
+def _maybe_sync_from_local_repo(store) -> bool:
+    """如果本机存在 aramhex-data 本地仓库（如 D:\\aramhex-data），优先检查本地数据是否有更新。"""
+    import shutil
+    candidates = [
+        Path("D:/aramhex-data"),
+        Path(__file__).resolve().parent.parent.parent / "aramhex-data",
+        Path.cwd().parent / "aramhex-data",
+    ]
+    for local_dir in candidates:
+        latest_file = local_dir / "latest.json"
+        if not latest_file.is_file():
+            continue
+        try:
+            local_manifest = json.loads(latest_file.read_text(encoding="utf-8"))
+            local_snap = str(local_manifest.get("snapshot_at") or "")
+            cur_snap = str(store.dataset.snapshot_at if getattr(store, "dataset", None) else "")
+            if local_snap and local_snap > cur_snap:
+                data_path = local_dir / local_manifest["path"]
+                dest = getattr(store, "downloaded", None)
+                if dest:
+                    dest.mkdir(parents=True, exist_ok=True)
+                    for root, dirs, files in os.walk(data_path):
+                        rel = Path(root).relative_to(data_path)
+                        (dest / rel).mkdir(parents=True, exist_ok=True)
+                        for f in files:
+                            shutil.copy2(Path(root) / f, dest / rel / f)
+                    shutil.copy2(latest_file, dest / "latest.json")
+                    if hasattr(store, "reload_dataset"):
+                        store.reload_dataset()
+                    return True
+        except Exception as e:
+            logging.getLogger(__name__).warning("从本地数据仓库同步失败：%s", e)
+    return False
+
+
+class DataSyncWorker(QThread):
+    """独立海克斯统计数据与资料同步后台线程。"""
+    done = Signal(str, bool)   # (message, is_changed)
+    failed = Signal(str)
+
+    def __init__(self, store, parent=None):
+        super().__init__(parent)
+        self.store = store
+
+    def run(self):
+        try:
+            local_changed = _maybe_sync_from_local_repo(self.store)
+            changed = False
+            if hasattr(self.store, "sync_data"):
+                changed = self.store.sync_data(force=True, manual=True) or local_changed
+            if hasattr(self.store, "sync_official"):
+                try:
+                    self.store.sync_official(force=True)
+                except Exception:
+                    pass
+            ds = getattr(self.store, "dataset", None)
+            matches_str = ""
+            if ds and hasattr(ds, "matches") and ds.matches:
+                matches_str = f"，共 {ds.matches / 1e4:.0f} 万局"
+            tail = f"（{ds.patch} 版本，截至 {str(ds.snapshot_at)[5:10]}{matches_str}）" if ds else ""
+            if changed:
+                msg = f"海克斯统计数据已成功更新！\n{tail}"
+            elif getattr(self.store, "sync_error", None):
+                msg = f"未能连接到最新数据源：{self.store.sync_error}。\n已继续使用现有数据，稍后会自动重试。"
+            else:
+                msg = f"当前海克斯统计数据已是最新。\n{tail}"
+            self.done.emit(msg, changed)
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class UpdateWorker(QThread):
     """后台线程：mode=check 查有没有新版本（手动检查时先同步统计数据，结果发 data_done）；
     mode=download 先试增量更新（只下变了的文件，官网优先），不行再从 GitHub 下完整安装包；
@@ -220,8 +292,8 @@ class MainWindow(QMainWindow):
 
         root = QWidget()
         lay = QVBoxLayout(root)
-        lay.setContentsMargins(14, 12, 14, 12)
-        lay.setSpacing(10)
+        lay.setContentsMargins(14, 8, 14, 8)
+        lay.setSpacing(8)
 
         # 顶部状态
         head = QHBoxLayout()
@@ -278,7 +350,18 @@ class MainWindow(QMainWindow):
         self.status.setTextFormat(Qt.RichText)
         sc = _card()
         scl = QVBoxLayout(sc)
-        scl.addWidget(self.status)
+        scl.setContentsMargins(14, 8, 14, 8)
+        scl.setSpacing(4)
+        s_row = QHBoxLayout()
+        s_row.setContentsMargins(0, 0, 0, 0)
+        s_row.addWidget(self.status, 1)
+        self.btn_sync_data = QPushButton("🔄 更新数据")
+        self.btn_sync_data.setToolTip("强制联网检查并同步最新海克斯对局统计数据与官方资料")
+        self.btn_sync_data.setFixedHeight(26)
+        self.btn_sync_data.setStyleSheet("padding:2px 10px;font-size:12px;")
+        self.btn_sync_data.clicked.connect(lambda: self.sync_data_manually(interactive=True))
+        s_row.addWidget(self.btn_sync_data, 0, Qt.AlignVCenter)
+        scl.addLayout(s_row)
         self.data_progress = _progress_bar()  # 下载统计数据时显示
         scl.addWidget(self.data_progress)
         lay.addWidget(sc)
@@ -342,8 +425,28 @@ class MainWindow(QMainWindow):
         self.offer_advice = QLabel("未在选海克斯")
         self.offer_advice.setWordWrap(True)
         l2.addWidget(self.offer_advice)
+
+        # 本局已持符文记录栏
+        acq_box = _card()
+        acq_lay = QVBoxLayout(acq_box)
+        acq_top = QHBoxLayout()
+        acq_top.addWidget(QLabel("<b>★ 本局已持符文（联动推导）：</b>"))
+        self.btn_clear_acq = QPushButton("清空")
+        self.btn_clear_acq.setFixedWidth(50)
+        self.btn_clear_acq.clicked.connect(self.engine.clear_acquired_augments)
+        acq_top.addWidget(self.btn_clear_acq)
+        acq_top.addStretch(1)
+        acq_lay.addLayout(acq_top)
+
+        self.acq_chips_label = QLabel("<span style='color:#777'>暂无已记录符文（在下方卡片点击「✔ 选入本局已持」即可记录并触发联动加权）</span>")
+        self.acq_chips_label.setTextFormat(Qt.RichText)
+        self.acq_chips_label.setWordWrap(True)
+        acq_lay.addWidget(self.acq_chips_label)
+        l2.addWidget(acq_box)
+
         grid = QGridLayout()
         self.offer_cards = []
+        self.offer_pick_btns = []
         for i in range(3):
             lab = QLabel()
             lab.setTextFormat(Qt.RichText)
@@ -351,9 +454,16 @@ class MainWindow(QMainWindow):
             lab.setAlignment(Qt.AlignTop)
             lab.setMinimumWidth(170)
             fr = _card()
-            QVBoxLayout(fr).addWidget(lab)
+            fl = QVBoxLayout(fr)
+            fl.addWidget(lab, 1)
+            btn = QPushButton("✔ 选入本局已持")
+            btn.setToolTip("将该符文记录到本局已持列表，后续三选一将自动计算联动加成与必出装备")
+            btn.setEnabled(False)
+            btn.clicked.connect(lambda _, idx=i: self._pick_offer_card(idx))
+            fl.addWidget(btn, 0)
             grid.addWidget(fr, 0, i)
             self.offer_cards.append(lab)
+            self.offer_pick_btns.append(btn)
         l2.addLayout(grid)
         btns = QHBoxLayout()
         b1 = QPushButton("重新识别")
@@ -365,7 +475,12 @@ class MainWindow(QMainWindow):
         btns.addStretch(1)
         l2.addLayout(btns)
         l2.addStretch(1)
-        self.tabs.addTab(w2, "海克斯三选一")
+        w2_scroll = QScrollArea()
+        w2_scroll.setWidget(w2)
+        w2_scroll.setWidgetResizable(True)
+        w2_scroll.setFrameShape(QFrame.NoFrame)
+        w2_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
+        self.tabs.addTab(w2_scroll, "海克斯三选一")
 
         self.tabs.addTab(self._settings_tab(), "设置")
         lay.addWidget(self.tabs, 1)
@@ -415,8 +530,16 @@ class MainWindow(QMainWindow):
         self.set_speed.setCurrentIndex(max(0, self.set_speed.findData(s.speed)))
         self.set_auto = QCheckBox("开机自动启动")
         self.set_auto.setChecked(autostart.is_enabled())
+        data_setting_row = QHBoxLayout()
         self.set_data = QCheckBox("自动获取最新海克斯数据（建议开启）")
         self.set_data.setChecked(s.check_data_updates)
+        self.btn_data_sync_settings = QPushButton("立即同步数据")
+        self.btn_data_sync_settings.setToolTip("强制向服务器/CDN拉取最新海克斯对局统计数据")
+        self.btn_data_sync_settings.setFixedHeight(22)
+        self.btn_data_sync_settings.setStyleSheet("padding:1px 6px;font-size:11px;")
+        self.btn_data_sync_settings.clicked.connect(lambda: self.sync_data_manually(interactive=True))
+        data_setting_row.addWidget(self.set_data, 1)
+        data_setting_row.addWidget(self.btn_data_sync_settings, 0)
         self.set_usage = QCheckBox("帮助改善软件（匿名）")
         self.set_usage.setChecked(s.send_usage)
         self.set_usage.setToolTip("开着时：联网时带一个随机编号（和账号、硬件无关），用来统计有多少人在用；\n"
@@ -439,7 +562,7 @@ class MainWindow(QMainWindow):
         f.addRow("浮窗位置", self.set_corner)
         badge_left.addWidget(self.set_badge)
         badge_left.addWidget(self.set_auto)
-        badge_left.addWidget(self.set_data)
+        badge_left.addLayout(data_setting_row)
         badge_left.addWidget(self.set_usage)
         save = QPushButton("保存设置")
         save.clicked.connect(self._save_settings)
@@ -472,9 +595,9 @@ class MainWindow(QMainWindow):
         # 版本和检查更新固定在页底，设置项较多时只滚动上面的表单。
         card = _card()
         about_row = QHBoxLayout(card)
-        about_row.setContentsMargins(18, 12, 18, 12)
+        about_row.setContentsMargins(16, 4, 16, 4)
         cv = QVBoxLayout()
-        cv.setSpacing(8)
+        cv.setSpacing(3)
         about_row.addLayout(cv, 1)
         about = QLabel(about_html())
         about.setTextFormat(Qt.RichText)
@@ -488,7 +611,7 @@ class MainWindow(QMainWindow):
         cv.addWidget(self.about_data)
         self.btn_check = QPushButton("检查更新")
         self.btn_check.setMinimumWidth(120)
-        self.btn_check.setMinimumHeight(34)
+        self.btn_check.setMinimumHeight(28)
         self.btn_check.clicked.connect(lambda: self.check_update(manual=True))
         about_row.addWidget(self.btn_check, 0, Qt.AlignVCenter)
         # 设置项越来越多：放进可滚动区域，窗口矮的时候不会被压扁
@@ -874,6 +997,47 @@ class MainWindow(QMainWindow):
         msg = getattr(self, "_data_msg", "")
         return f"\n{msg}" if msg else ""
 
+    def sync_data_manually(self, interactive: bool = True):
+        """用户点击「更新数据」按钮：单独在后台线程同步海克斯统计数据与资料，并在完成后提示。"""
+        if getattr(self, "_data_sync_worker", None) and self._data_sync_worker.isRunning():
+            if interactive:
+                QMessageBox.information(self, "海克斯数据更新", "正在同步最新海克斯数据，请稍候…")
+            return
+        if hasattr(self, "btn_sync_data"):
+            self.btn_sync_data.setEnabled(False)
+            self.btn_sync_data.setText("更新中…")
+        if hasattr(self, "btn_data_sync_settings"):
+            self.btn_data_sync_settings.setEnabled(False)
+            self.btn_data_sync_settings.setText("同步中…")
+
+        self._data_sync_worker = DataSyncWorker(self.engine.store, self)
+
+        def on_done(msg: str, changed: bool):
+            if hasattr(self, "btn_sync_data"):
+                self.btn_sync_data.setEnabled(True)
+                self.btn_sync_data.setText("🔄 更新数据")
+            if hasattr(self, "btn_data_sync_settings"):
+                self.btn_data_sync_settings.setEnabled(True)
+                self.btn_data_sync_settings.setText("立即同步数据")
+            self.refresh()
+            if interactive:
+                QMessageBox.information(self, "海克斯数据更新", msg)
+
+        def on_failed(err: str):
+            if hasattr(self, "btn_sync_data"):
+                self.btn_sync_data.setEnabled(True)
+                self.btn_sync_data.setText("🔄 更新数据")
+            if hasattr(self, "btn_data_sync_settings"):
+                self.btn_data_sync_settings.setEnabled(True)
+                self.btn_data_sync_settings.setText("立即同步数据")
+            if interactive:
+                QMessageBox.warning(self, "海克斯数据更新", f"同步数据失败：\n{err}\n\n已保留当前本地数据。")
+
+        self._data_sync_worker.done.connect(on_done)
+        self._data_sync_worker.failed.connect(on_failed)
+        self._retire_when_done("_data_sync_worker", self._data_sync_worker)
+        self._data_sync_worker.start()
+
     def _check_failed(self, msg: str):
         logging.getLogger(__name__).warning("检查更新失败：%s", msg)
         box = QMessageBox(QMessageBox.Warning, "检查更新", "检查更新失败，请稍后再试。" + self._data_line(), parent=self)
@@ -1071,7 +1235,8 @@ class MainWindow(QMainWindow):
         self._set_candidates(snap.get("candidates") or [])
 
         key = (hid, d.get("date"), d.get("data_revision"), d.get("official_revision"),
-               d.get("official_origin"), self.engine.icons.version, dd.get("band_effective"), show_win) if d else None
+               d.get("official_origin"), self.engine.icons.version, dd.get("band_effective"), show_win,
+               tuple(snap.get("acquired_augments") or [])) if d else None
         if d and self._panel_hero != key:
             self._panel_hero = key
             self.tab_hero.setText(self._hero_html(d, show_win))
@@ -1081,8 +1246,61 @@ class MainWindow(QMainWindow):
         self._render_offer(snap.get("evaluation"), show_win,
                            (snap.get("offer") or {}).get("pending_columns"))
 
+    def _update_acq_bar(self, acquired: list[str]) -> None:
+        if not hasattr(self, "acq_chips_label"):
+            return
+        if acquired:
+            parts = []
+            eng = getattr(self, "engine", None)
+            store = getattr(eng, "store", None)
+            aug_dict = getattr(store, "augments", {}) if store else {}
+            for idx, aid in enumerate(acquired):
+                name = (aug_dict.get(aid) or {}).get("name") or aid
+                rarity = (aug_dict.get(aid) or {}).get("rarity")
+                r_cn = RARITY_CN.get(rarity, "")
+                parts.append(
+                    f"<span style='background-color:#1e293b;border:1px solid #475569;border-radius:4px;padding:2px 8px;margin-right:6px;'>"
+                    f"<b>{escape(name)}</b> <span style='color:#94a3b8;font-size:11px'>({r_cn})</span></span>"
+                )
+            self.acq_chips_label.setText(" ".join(parts))
+        else:
+            self.acq_chips_label.setText("<span style='color:#777'>暂无已记录符文（在下方卡片点击「✔ 选入本局已持」即可记录并触发联动加权）</span>")
+
+    def _pick_offer_card(self, index: int) -> None:
+        eng = getattr(self, "engine", None)
+        if not eng:
+            return
+        snap = eng.snapshot()
+        ev = snap.get("evaluation")
+        if not ev or not ev.get("slots") or index >= len(ev["slots"]):
+            return
+        slot = ev["slots"][index]
+        aid = slot.get("augment_id")
+        if aid:
+            eng.record_acquired_augment(aid)
+            self.refresh()
+
     def _hero_html(self, d, show_win) -> str:
-        out = buildview.lines(d, self.engine.icons, show_win, size=28)
+        out = []
+        from .. import synergy
+        eng = getattr(self, "engine", None)
+        state = getattr(eng, "state", {}) if eng else {}
+        acquired = state.get("acquired_augments", [])
+        store = getattr(eng, "store", None) if eng else None
+        advice_items = synergy.get_acquired_augments_build_advice(acquired, store)
+        if advice_items:
+            out.append("<div style='background-color:#1e293b;border:1px solid #f59e0b;padding:8px 10px;border-radius:6px;margin-bottom:8px;'>")
+            out.append("<b style='color:#f59e0b;font-size:13px'>★ 本局已持符文专属必出装备</b><br>")
+            for it in advice_items:
+                name = it.get("name") or it.get("id")
+                reason = it.get("reason", "")
+                src = it.get("source", "符文联动")
+                out.append(f"　<b style='color:#38bdf8'>【{escape(name)}】</b> <span style='color:#fbbf24;font-size:11px'>({escape(src)})</span>"
+                           + (f" <span style='color:#94a3b8;font-size:12px'>- {escape(reason)}</span>" if reason else ""))
+            out.append("</div>")
+
+        icons = getattr(eng, "icons", None) if eng else None
+        out.extend(buildview.lines(d, icons, show_win, size=28))
         sk = buildview.skills_line(d, show_win)
         if sk:
             out.append(sk)
@@ -1096,19 +1314,33 @@ class MainWindow(QMainWindow):
         return "<br>".join(out)
 
     def _render_offer(self, ev, show_win, pending=None):
+        eng = getattr(self, "engine", None)
+        cur_acq = getattr(eng, "state", {}).get("acquired_augments", []) if eng else []
         if not ev:
             self.offer_advice.setText("<span style='color:#777'>未在选海克斯</span>")
             for lab in self.offer_cards:
                 lab.setText("")
+            for btn in getattr(self, "offer_pick_btns", []):
+                btn.setEnabled(False)
+            if hasattr(self, "_update_acq_bar"):
+                self._update_acq_bar(cur_acq)
             return
         waiting = any(pending or ())
         pk = recommend.pentakill_text(ev.get("pentakill")) if not waiting else ""
         advice = "卡片更新中，等待识别确认" if waiting else ev['advice']
         self.offer_advice.setText(f"<b style='font-size:15px'>{advice}</b>"
                                   + (f"<br><span style='color:#c9a0ff'>{escape(pk)}</span>" if pk else ""))
-        for lab, r in zip(self.offer_cards, ev["slots"]):
+
+        acquired = ev.get("acquired_augments") or cur_acq
+        if hasattr(self, "_update_acq_bar"):
+            self._update_acq_bar(acquired)
+
+        for i, (lab, r) in enumerate(zip(self.offer_cards, ev["slots"])):
+            btn = self.offer_pick_btns[i] if i < len(getattr(self, "offer_pick_btns", [])) else None
             if pending and pending[r["index"]]:
                 lab.setText("<span style='color:#777'>识别中…</span>")
+                if btn:
+                    btn.setEnabled(False)
                 continue
             v, col = VERDICT_CN.get(r["verdict"], VERDICT_CN["unknown"])
             if r["verdict"] == "best" and r.get("sample_warning"):
@@ -1132,7 +1364,40 @@ class MainWindow(QMainWindow):
                     warn = "⚠ 样本太少" if r.get("thin") == "too_few" else "样本偏少"
                     s += f" · <span style='color:#ff7a6b'>{warn}</span>"
                 lines.append(s)
+
+            # 联动加成与冲突提示
+            combo = r.get("combo_synergy")
+            if combo:
+                if combo.get("bonus", 0) > 0:
+                    lines.append(f"<b style='color:#f59e0b'>★ 联动加成：{combo['bonus']:+.1f}pp</b>")
+                    for reas in combo.get("reasons", []):
+                        lines.append(f"<span style='color:#fbbf24;font-size:11px'>{escape(reas)}</span>")
+                if combo.get("penalty", 0) < 0:
+                    lines.append(f"<b style='color:#ef4444'>⚠ 机制冲突：{combo['penalty']:.1f}pp</b>")
+                    for conf in combo.get("conflicts", []):
+                        lines.append(f"<span style='color:#f87171;font-size:11px'>{escape(conf)}</span>")
+
+            # 核心必出装备
+            must_buy = r.get("must_buy_items") or []
+            if must_buy:
+                names = "、".join([it["name"] for it in must_buy[:3]])
+                lines.append(f"<div style='margin-top:4px;padding:3px 5px;background-color:#1e293b;border-radius:4px'>"
+                             f"<b style='color:#38bdf8'>💡 核心必出：</b><span style='color:#e2e8f0'>{escape(names)}</span></div>")
+
             lab.setText("<br>".join(lines))
+
+            # 按钮状态更新
+            if btn:
+                aid = r.get("augment_id")
+                if aid and str(aid) in [str(a) for a in acquired]:
+                    btn.setText("✔ 本局已持")
+                    btn.setEnabled(False)
+                elif aid:
+                    btn.setText("✔ 选入本局已持")
+                    btn.setEnabled(True)
+                else:
+                    btn.setText("✔ 选入本局已持")
+                    btn.setEnabled(False)
 
     # ---------- 窗口行为 ----------
 
@@ -1174,6 +1439,7 @@ class Tray(QSystemTrayIcon):
         self.act_overlay.toggled.connect(self._toggle_overlay)
         m.addAction(self.act_overlay)
         m.addAction("重新识别", engine.rescan)
+        m.addAction("🔄 更新海克斯数据", lambda: (window.show_and_raise(), window.sync_data_manually(interactive=True)))
         m.addAction("检查更新", lambda: (window.show_and_raise(), window.check_update(manual=True)))
         self.messageClicked.connect(window.show_and_raise)
         self.act_auto = QAction("开机自动启动", m, checkable=True)

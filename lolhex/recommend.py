@@ -174,7 +174,8 @@ def _provisional(r: dict, p: dict, mine: dict | None, base: float | None, k: int
     return r
 
 
-def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300) -> dict:
+def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
+             acquired_augments: list[str] | None = None) -> dict:
     # 重算也会由界面点击触发；网络更新交给 Engine 的后台预取。
     hero = store.hero(hero_id, allow_network=False) if hero_id else None
     ag = store.win_data(hero_id, allow_network=False) if hero_id else None
@@ -202,6 +203,8 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300) 
     global_mean = (sum(g["win"] * g["games"] for g in global_augs.values() if g.get("games")) / total_games
                    if total_games else None)
 
+    acquired_list = [str(a) for a in (acquired_augments or []) if a]
+
     results = []
     for idx, aid in enumerate(slots):
         r: dict = {"index": idx, "augment_id": aid, "score": None, "basis": None,
@@ -224,65 +227,111 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300) 
             results.append(r)
             continue
         if aid in provisional:
-            results.append(_provisional(r, provisional[aid], ag_augs.get(aid), base, k))
-            continue
-        t = official.get(aid)
-        if t:
-            r.update(tier=t.get("tier"), pick=t.get("pick"))
-        if aid in ranks_by_win:
-            r.update(ranks_by_win[aid])
-            r["reasons"].append(f"本英雄{RARITY_CN.get(r.get('rarity'), '')}胜率第{r['rank']}/{r['rank_total']}")
-        elif t and t.get("rank") and t.get("tier"):
-            rarity = t.get("rarity") or meta.get("rarity")
-            r.update(rank=t["rank"], rank_total=rarity_total.get(rarity))
-            r["reasons"].append(f"官方{RARITY_CN.get(rarity, '')}第{t['rank']}/{rarity_total.get(rarity, '?')}"
-                                f"（{t['tier']}级）")
+            r = _provisional(r, provisional[aid], ag_augs.get(aid), base, k)
+        else:
+            t = official.get(aid)
+            if t:
+                r.update(tier=t.get("tier"), pick=t.get("pick"))
+            if aid in ranks_by_win:
+                r.update(ranks_by_win[aid])
+                r["reasons"].append(f"本英雄{RARITY_CN.get(r.get('rarity'), '')}胜率第{r['rank']}/{r['rank_total']}")
+            elif t and t.get("rank") and t.get("tier"):
+                rarity = t.get("rarity") or meta.get("rarity")
+                r.update(rank=t["rank"], rank_total=rarity_total.get(rarity))
+                r["reasons"].append(f"官方{RARITY_CN.get(rarity, '')}第{t['rank']}/{rarity_total.get(rarity, '?')}"
+                                    f"（{t['tier']}级）")
 
-        # 1) 本英雄胜率（选了分段：分段和全体按局数综合）
-        a = ag_augs.get(aid)
-        bl = (blend or {}).get(aid)
-        if bl and base is not None:
-            d = bl["delta"]
-            r.update(win=bl["win"], games=bl["games"], games_all=bl["games_all"], win_all=bl["win_all"],
-                     sample=sample_level(bl["games_all"]), source="public", band_weight=round(bl["weight"], 3))
-            band_part = (f"{label} {bl['games']}局胜率 {bl['win'] * 100:.1f}%" if bl["games"] else f"{label}没有局")
-            r["reasons"].append(f"{band_part}；全体 {bl['games_all']}局胜率 {bl['win_all'] * 100:.1f}%；"
-                                f"按局数综合较英雄基准 {d:+.1f}pp")
-            r["score"] = round(d, 2)
-            r["basis"] = "hero_win"
-        elif a and a.get("win") is not None and a.get("games") and base is not None:
-            d = smoothed_delta(a["win"], a["games"], base, k)
-            r.update(win=a["win"], games=a["games"], sample=sample_level(a["games"]), source="public")
-            r["reasons"].append(f"本英雄胜率 {a['win'] * 100:.1f}%（{a['games']}局，{SAMPLE_CN[r['sample']]}，"
-                                f"{label}），平滑后较英雄基准 {d:+.1f}pp")
-            r["score"] = round(d, 2)
-            r["basis"] = "hero_win"
-        # 2) 未识别英雄：所有英雄合计的胜率
-        if r["score"] is None and not hero_id:
-            g = global_augs.get(aid)
-            if g and g.get("win") and global_mean:
-                d = (g["win"] - global_mean) * 100
-                r.update(win=g["win"], games=g.get("games"), score=round(d, 2), basis="global_win")
-                r["reasons"].append(f"全英雄胜率 {g['win'] * 100:.1f}%，较平均 {d:+.1f}pp")
-        # 3) 只有官方层级
-        if r["score"] is None and r.get("tier") in TIER_PP:
-            r["score"] = TIER_PP[r["tier"]]
-            r["basis"] = "tier_only"
-            r["reasons"].append("没有胜率数据，按官方层级估计，可信度低")
-        # 4) 新海克斯（测试服 / 刚上线）：统计里还没有，不当成「几乎不选」去扣分。
-        #    腾讯上线后可能去掉 isPBE 标记，所以整份统计里一局都没有的也算新的
-        if r["score"] is None and (meta.get("new") or (global_augs and aid not in global_augs)):
-            r.update(verdict="nodata", basis="new")
-            r["reasons"].append(NEW_NOTE)
-            results.append(r)
-            continue
-        if r["score"] is None:
-            if hero_id and (official or ag):
-                r["score"] = -3.0
-                r["basis"] = "rare"
-                r["reasons"].append("该英雄几乎不选，数据不足")
-            else:
-                r["reasons"].append("暂无可靠数据")
+            # 1) 本英雄胜率（选了分段：分段和全体按局数综合）
+            a = ag_augs.get(aid)
+            bl = (blend or {}).get(aid)
+            if bl and base is not None:
+                d = bl["delta"]
+                r.update(win=bl["win"], games=bl["games"], games_all=bl["games_all"], win_all=bl["win_all"],
+                         sample=sample_level(bl["games_all"]), source="public", band_weight=round(bl["weight"], 3))
+                band_part = (f"{label} {bl['games']}局胜率 {bl['win'] * 100:.1f}%" if bl["games"] else f"{label}没有局")
+                r["reasons"].append(f"{band_part}；全体 {bl['games_all']}局胜率 {bl['win_all'] * 100:.1f}%；"
+                                    f"按局数综合较英雄基准 {d:+.1f}pp")
+                r["score"] = round(d, 2)
+                r["basis"] = "hero_win"
+            elif a and a.get("win") is not None and a.get("games") and base is not None:
+                d = smoothed_delta(a["win"], a["games"], base, k)
+                r.update(win=a["win"], games=a["games"], sample=sample_level(a["games"]), source="public")
+                r["reasons"].append(f"本英雄胜率 {a['win'] * 100:.1f}%（{a['games']}局，{SAMPLE_CN[r['sample']]}，"
+                                    f"{label}），平滑后较英雄基准 {d:+.1f}pp")
+                r["score"] = round(d, 2)
+                r["basis"] = "hero_win"
+            # 2) 未识别英雄：所有英雄合计的胜率
+            if r["score"] is None and not hero_id:
+                g = global_augs.get(aid)
+                if g and g.get("win") and global_mean:
+                    d = (g["win"] - global_mean) * 100
+                    r.update(win=g["win"], games=g.get("games"), score=round(d, 2), basis="global_win")
+                    r["reasons"].append(f"全英雄胜率 {g['win'] * 100:.1f}%，较平均 {d:+.1f}pp")
+            # 3) 只有官方层级
+            if r["score"] is None and r.get("tier") in TIER_PP:
+                r["score"] = TIER_PP[r["tier"]]
+                r["basis"] = "tier_only"
+                r["reasons"].append("没有胜率数据，按官方层级估计，可信度低")
+            # 4) 新海克斯（测试服 / 刚上线）：统计里还没有，不当成「几乎不选」去扣分。
+            #    腾讯上线后可能去掉 isPBE 标记，所以整份统计里一局都没有的也算新的
+            if r["score"] is None and (meta.get("new") or (global_augs and aid not in global_augs)):
+                r.update(verdict="nodata", basis="new")
+                r["reasons"].append(NEW_NOTE)
+            elif r["score"] is None:
+                if hero_id and (official or ag):
+                    r["score"] = -3.0
+                    r["basis"] = "rare"
+                    r["reasons"].append("该英雄几乎不选，数据不足")
+                else:
+                    r["reasons"].append("暂无可靠数据")
+
+        # 局内多符文联动协同与冲突加权
+        if aid and acquired_list:
+            from . import synergy
+            combo_eval = synergy.evaluate_combo_synergies(aid, acquired_list)
+            r["combo_synergy"] = combo_eval
+            if combo_eval["net_score"] != 0:
+                if r["score"] is not None:
+                    r["score_before_synergy"] = r["score"]
+                    r["score"] = round(r["score"] + combo_eval["net_score"], 2)
+                elif combo_eval["bonus"] > 0:
+                    r["score_before_synergy"] = 0.0
+                    r["score"] = round(combo_eval["net_score"], 2)
+                    r["basis"] = "synergy"
+                    r["verdict"] = "ok"
+                if combo_eval["bonus"] > 0:
+                    r["reasons"].append(f"局内符文联动加成 {combo_eval['bonus']:+.1f}pp")
+                    for reas in combo_eval["reasons"]:
+                        r["reasons"].append(reas)
+                if combo_eval["penalty"] < 0:
+                    r["reasons"].append(f"局内符文机制冲突扣除 {combo_eval['penalty']:.1f}pp")
+                    for conf in combo_eval["conflicts"]:
+                        r["reasons"].append(conf)
+            elif combo_eval["reasons"]:
+                for reas in combo_eval["reasons"]:
+                    r["reasons"].append(reas)
+
+        # 符文驱动的核心必出装备推荐
+        if aid:
+            from . import synergy
+            anchor_items = synergy.get_augment_core_items(aid, store)
+            combo_items = (r.get("combo_synergy") or {}).get("core_items", [])
+            seen_items = set()
+            must_buy = []
+            for it in combo_items + anchor_items:
+                iid = str(it.get("id") or it.get("item") or "")
+                if iid and iid not in seen_items:
+                    seen_items.add(iid)
+                    must_buy.append(it)
+            r["must_buy_items"] = must_buy
+            if must_buy and not r.get("item_hint"):
+                r["item_hint"] = {
+                    "source": "stats",
+                    "title": "核心必出装备 · 符文协同",
+                    "footer": "与当前符文或已持符文协同度极高，核心必出",
+                    "items": [{"item": it["id"], "name": it["name"]} for it in must_buy[:3]]
+                }
+
         results.append(r)
 
     # 正式服的新海克斯也沿用明确的显示口径；不改原始 win、局数、打分和首选规则。
@@ -358,8 +407,11 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300) 
         advice += "（没有胜率数据，按官方层级）"
     if not hero_id:
         advice += "（未识别英雄，按全英雄数据）"
+    if best is not None and (best.get("combo_synergy") or {}).get("bonus", 0) > 0:
+        advice += "（已持符文联动加权推荐）"
 
     pentakill = pentakill_rates(store, hero_id) if any(a in PENTAKILL for a in slots if a) else None
+    from . import synergy
     return {
         "hero_id": hero_id,
         "base_win": base,
@@ -367,6 +419,8 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300) 
         "pentakill": pentakill,
         "best_index": best["index"] if best else None,
         "advice": advice,
+        "acquired_augments": acquired_list,
+        "build_advice": synergy.get_acquired_augments_build_advice(acquired_list, store),
         "sources": {"tencent_date": (hero or {}).get("date"), "win_source": label,
                     "data_patch": (ag or {}).get("patch"), "patch": store.static.get("patch")},
     }
