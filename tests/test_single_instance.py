@@ -6,16 +6,18 @@ import uuid
 
 import pytest
 
+from pathlib import Path
 from lolhex.ui import single_instance
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="命名互斥量只在 Windows 上")
 
+ROOT = str(Path(__file__).resolve().parent.parent)
 PROBE = "import sys; from lolhex.ui import single_instance as s; print(s.acquire(sys.argv[1], int(sys.argv[2])))"
 
 
 def _other_process(name, wait_ms=0):
     out = subprocess.run([sys.executable, "-c", PROBE, name, str(wait_ms)],
-                         capture_output=True, text=True, timeout=30, check=True)
+                         capture_output=True, text=True, timeout=30, check=True, cwd=ROOT)
     return out.stdout.strip()
 
 
