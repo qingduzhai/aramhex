@@ -312,7 +312,7 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
                     r["reasons"].append(reas)
 
         # 符文驱动的核心必出装备推荐
-        if aid:
+        if aid and hero_id:
             from . import synergy
             anchor_items = synergy.get_augment_core_items(aid, store, hero_id=hero_id)
             combo_items = (r.get("combo_synergy") or {}).get("core_items", [])
