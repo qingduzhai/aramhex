@@ -831,6 +831,18 @@ class ControlPanel(QWidget):
         elif href == "quit":
             from .mainwindow import quit_app
             quit_app(self.engine)
+        elif href.startswith("add_aid:"):
+            self.engine.record_acquired_augment(href.split(":", 1)[1])
+            self.give_back_focus()
+        elif href.startswith("remove_aid:"):
+            try:
+                self.engine.remove_acquired_augment(int(href.split(":", 1)[1]))
+                self.give_back_focus()
+            except ValueError:
+                pass
+        elif href == "clear_acq":
+            self.engine.clear_acquired_augments()
+            self.give_back_focus()
 
     def _set_btn_size(self, d: int) -> None:
         """图标按钮直径（逻辑像素）。"""
@@ -955,7 +967,30 @@ class ControlPanel(QWidget):
             pk = recommend.pentakill_text(ev.get("pentakill")) if not waiting else ""
             if pk:
                 parts.append(f"<span style='color:#c9a0ff'>{escape(pk)}</span>")
+        if hid:
+            from .. import synergy
+            acquired = snap.get("acquired_augments") or []
+            store = getattr(self.engine, "store", None)
+            rb = synergy.get_hero_rune_build(hid, acquired, store)
+            if rb and rb.get("items"):
+                color = "#f59e0b" if rb.get("is_rune_adapted") else "#38bdf8"
+                tag_desc = "已根据符文质变适配" if rb.get("is_rune_adapted") else "开局预备流派"
+                parts.append(f"<div style='background:#171d29;border:1px solid {color};padding:6px 8px;border-radius:6px;margin:4px 0;'>")
+                parts.append(f"<b style='color:{color};font-size:13px'>★ 符文专属：{escape(rb['build_name'])}</b> <span style='color:#94a3b8;font-size:10px'>({tag_desc})</span>")
+                item_parts = []
+                for it in rb["items"]:
+                    img = buildview.item(self.engine.icons, it, 22)
+                    nm = escape(it.get("name", ""))
+                    if img and "<img" in img:
+                        item_parts.append(f"{img}&nbsp;{nm}")
+                    else:
+                        item_parts.append(f"【{nm}】")
+                parts.append("<div style='margin:3px 0;font-size:11px;'>" + " → ".join(item_parts) + "</div>")
+                if rb.get("explanation"):
+                    parts.append(f"<span style='color:#94a3b8;font-size:11px'>💡 {escape(rb['explanation'])}</span>")
+                parts.append("</div>")
         if d:
+            parts.append("<span style='color:#64748b;font-size:11px'>── 官方大数据基准出装 ──</span>")
             parts.extend(buildview.lines(d, self.engine.icons, show_win, size=22, compact=True))
             sk = buildview.skills_line(d, show_win)
             if sk:

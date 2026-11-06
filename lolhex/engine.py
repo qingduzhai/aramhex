@@ -883,6 +883,20 @@ class Engine:
             prev = self.state.get("offer")
             if offer is None:
                 self._evaluation_revision += 1
+                prev_ev = self.state.get("evaluation")
+                if prev and prev_ev and self.state.get("phase") == "ingame" and self.state.get("hero_id"):
+                    best_slot = None
+                    for s in prev_ev.get("slots", []):
+                        if s.get("verdict") == "best" and s.get("augment_id"):
+                            best_slot = s
+                            break
+                    if best_slot:
+                        aid_str = str(best_slot["augment_id"])
+                        cur_acq = list(self.state.get("acquired_augments", []))
+                        if aid_str not in cur_acq:
+                            cur_acq.append(aid_str)
+                            self.state["acquired_augments"] = cur_acq
+                            log.info("三选一结束，自动记录推荐首选符文入本局已持：%s (%s)", aid_str, best_slot.get("name"))
                 self.state.update(offer=None, evaluation=None)
                 return
             if self.state["phase"] != "ingame" or (context and context[0] != getattr(self, "_scan_epoch", 0)):

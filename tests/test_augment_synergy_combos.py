@@ -111,3 +111,43 @@ def test_engine_acquired_augments_state_and_clear(store, tmp_path):
     assert len(eng.state["acquired_augments"]) == 1
     eng._on_game_end()
     assert eng.state["acquired_augments"] == []
+
+
+def test_get_hero_rune_build(store):
+    # Volibear empty augments: preparatory build
+    b_empty = synergy.get_hero_rune_build("106", [], store)
+    assert b_empty["is_rune_adapted"] is False
+    assert len(b_empty["items"]) == 5
+    assert "预备" in b_empty["status_label"]
+
+    # Volibear with 3086 (Beehive): specialized dual playstyle
+    b_bee = synergy.get_hero_rune_build("106", ["3086"], store)
+    assert b_bee["is_rune_adapted"] is True
+    assert "小蜜蜂" in b_bee["build_name"]
+    assert any("电刃" in it["name"] for it in b_bee["items"])
+    assert any("破败" in it["name"] for it in b_bee["items"])
+
+    # Combo pair: 1048 (珠光护手) + 1092 (易损)
+    b_combo = synergy.get_hero_rune_build("51", ["1048", "1092"], store)
+    assert b_combo["is_rune_adapted"] is True
+    assert any(term in b_combo["build_name"] for term in ["法爆", "双法爆", "天命", "暴"])
+
+
+def test_engine_auto_record_on_offer_close(store, tmp_path):
+    s = Settings()
+    eng = Engine(s, home=tmp_path, store=store)
+    eng.state["hero_id"] = "17"
+    eng.state["phase"] = "ingame"
+    eng.state["acquired_augments"] = []
+
+    from lolhex.vision.detector import Offer
+    mock_offer = Offer(["1058", "1029", "2128"], [], [], [None]*3)
+    eng._on_offer(mock_offer)
+    assert eng.state["offer"] is not None
+    assert eng.state["evaluation"] is not None
+
+    eng._on_offer(None)
+    assert eng.state["offer"] is None
+    assert len(eng.state["acquired_augments"]) == 1
+    assert eng.state["acquired_augments"][0] == "1029"
+

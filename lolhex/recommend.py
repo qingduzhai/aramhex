@@ -314,7 +314,7 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
         # 符文驱动的核心必出装备推荐
         if aid:
             from . import synergy
-            anchor_items = synergy.get_augment_core_items(aid, store)
+            anchor_items = synergy.get_augment_core_items(aid, store, hero_id=hero_id)
             combo_items = (r.get("combo_synergy") or {}).get("core_items", [])
             seen_items = set()
             must_buy = []
@@ -421,6 +421,7 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
         "advice": advice,
         "acquired_augments": acquired_list,
         "build_advice": synergy.get_acquired_augments_build_advice(acquired_list, store),
+        "rune_build": synergy.get_hero_rune_build(hero_id, acquired_list, store),
         "sources": {"tencent_date": (hero or {}).get("date"), "win_source": label,
                     "data_patch": (ag or {}).get("patch"), "patch": store.static.get("patch")},
     }

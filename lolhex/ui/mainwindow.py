@@ -410,6 +410,8 @@ class MainWindow(QMainWindow):
         self.tab_hero.setWordWrap(True)
         self.tab_hero.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.tab_hero.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.tab_hero.setOpenExternalLinks(False)
+        self.tab_hero.linkActivated.connect(self._handle_hero_link)
         w1 = QWidget()
         QVBoxLayout(w1).addWidget(self.tab_hero)
         # 出装、加点很长：放进滚动区，不然标签页按最高的一页定高度，选了英雄后设置页的「检查更新」被挤出窗口
@@ -1280,27 +1282,102 @@ class MainWindow(QMainWindow):
             eng.record_acquired_augment(aid)
             self.refresh()
 
+    def _handle_hero_link(self, href: str):
+        eng = getattr(self, "engine", None)
+        if not eng:
+            return
+        if href.startswith("add_aid:"):
+            aid = href.split(":", 1)[1]
+            eng.record_acquired_augment(aid)
+            self._panel_hero = None
+            self.refresh()
+        elif href.startswith("remove_aid:"):
+            try:
+                idx = int(href.split(":", 1)[1])
+                eng.remove_acquired_augment(idx)
+                self._panel_hero = None
+                self.refresh()
+            except ValueError:
+                pass
+        elif href == "clear_acq":
+            eng.clear_acquired_augments()
+            self._panel_hero = None
+            self.refresh()
+
     def _hero_html(self, d, show_win) -> str:
         out = []
         from .. import synergy
         eng = getattr(self, "engine", None)
         state = getattr(eng, "state", {}) if eng else {}
-        acquired = state.get("acquired_augments", [])
+        acquired = list(state.get("acquired_augments", []))
         store = getattr(eng, "store", None) if eng else None
-        advice_items = synergy.get_acquired_augments_build_advice(acquired, store)
-        if advice_items:
-            out.append("<div style='background-color:#1e293b;border:1px solid #f59e0b;padding:8px 10px;border-radius:6px;margin-bottom:8px;'>")
-            out.append("<b style='color:#f59e0b;font-size:13px'>★ 本局已持符文专属必出装备</b><br>")
-            for it in advice_items:
-                name = it.get("name") or it.get("id")
-                reason = it.get("reason", "")
-                src = it.get("source", "符文联动")
-                out.append(f"　<b style='color:#38bdf8'>【{escape(name)}】</b> <span style='color:#fbbf24;font-size:11px'>({escape(src)})</span>"
-                           + (f" <span style='color:#94a3b8;font-size:12px'>- {escape(reason)}</span>" if reason else ""))
+        hid = d.get("id") or state.get("hero_id")
+        icons = getattr(eng, "icons", None) if eng else None
+
+        # 1. 符文专属适配流派出装卡片
+        rune_build = synergy.get_hero_rune_build(hid, acquired, store)
+        if rune_build and rune_build.get("items"):
+            b_name = escape(rune_build.get("build_name", "4.0专精流派"))
+            status = escape(rune_build.get("status_label", ""))
+            is_adapted = rune_build.get("is_rune_adapted", False)
+            border_col = "#f59e0b" if is_adapted else "#3b82f6"
+            title_col = "#fbbf24" if is_adapted else "#60a5fa"
+            tag_col = "#38bdf8" if is_adapted else "#94a3b8"
+
+            header_title = f"★ 本局已持符文专属必出装备 · 【{b_name}】" if is_adapted else f"★ 【{b_name}】（4.0预备推荐流派）"
+            out.append(f"<div style='background-color:#141b2d;border:2px solid {border_col};padding:10px 12px;border-radius:8px;margin-bottom:12px;'>")
+            out.append(f"<div style='margin-bottom:6px;'><b style='color:{title_col};font-size:15px'>{header_title}</b> "
+                       f"<span style='color:{tag_col};font-size:12px'>({status})</span></div>")
+
+            # 符文状态与快捷操作条
+            if acquired:
+                aug_tags = []
+                aug_dict = getattr(store, "augments", {}) if store else {}
+                for idx, aid in enumerate(acquired):
+                    aname = (aug_dict.get(aid) or {}).get("name") or aid
+                    aug_tags.append(
+                        f"<span style='background:#1e293b;border:1px solid #475569;border-radius:4px;padding:2px 6px;margin-right:4px;'>"
+                        f"<b>{escape(aname)}</b> <a href='remove_aid:{idx}' style='color:#ef4444;text-decoration:none;'><b>×</b></a></span>"
+                    )
+                out.append(f"<div style='margin-bottom:8px;font-size:12px;'><span style='color:#cbd5e1'>已激活符文：</span>"
+                           + " ".join(aug_tags)
+                           + " <a href='clear_acq' style='color:#94a3b8;font-size:11px;margin-left:6px;text-decoration:none;'>[清空全部]</a></div>")
+            else:
+                out.append("<div style='margin-bottom:8px;font-size:12px;color:#94a3b8;'>"
+                           "<span>开局预备流派（选入海克斯后自动转轨）</span></div>")
+
+            # 出装流向行（带图标、名称与箭头）
+            item_nodes = []
+            for it in rune_build["items"]:
+                img = buildview.item(icons, it, 28)
+                nm = escape(it.get("name") or it.get("id"))
+                if img and "<img" in img:
+                    item_nodes.append(f"<span style='vertical-align:middle;'>{img}</span> <b>{nm}</b>")
+                else:
+                    item_nodes.append(f"<b>【{nm}】</b>")
+            items_flow = " <span style='color:#64748b;font-weight:bold;font-size:14px'>→</span> ".join(item_nodes)
+            out.append(f"<div style='padding:6px 8px;background-color:#0f172a;border-radius:6px;margin-bottom:8px;'>{items_flow}</div>")
+
+            # 联动原理解析
+            expl = escape(rune_build.get("explanation", ""))
+            if expl:
+                out.append(f"<div style='color:#cbd5e1;font-size:12px;line-height:1.5;'><b>💡 联动解析：</b>{expl}</div>")
+
+            # 快捷选入常用/绝活海克斯按钮
+            top_augs = [a for a in d.get("augments", []) if a.get("id") and str(a["id"]) not in acquired][:5]
+            if top_augs:
+                quick_links = []
+                for a in top_augs:
+                    aname = escape(a.get("name") or a["id"])
+                    aid = a["id"]
+                    quick_links.append(f"<a href='add_aid:{aid}' style='color:#38bdf8;text-decoration:none;background:#1e293b;padding:2px 6px;border-radius:4px;border:1px solid #334155;'>+ {aname}</a>")
+                out.append(f"<div style='margin-top:8px;padding-top:6px;border-top:1px solid #1e293b;font-size:11px;color:#64748b;'>"
+                           f"快捷选入/模拟海克斯：{' '.join(quick_links)}</div>")
+
             out.append("</div>")
 
-        icons = getattr(eng, "icons", None) if eng else None
-        out.extend(buildview.lines(d, icons, show_win, size=28))
+        out.append("<div style='margin-top:4px;margin-bottom:6px;'><b style='color:#94a3b8;font-size:13px'>─── 官方大数据基准出装（常规参考） ───</b></div>")
+        out.extend(buildview.lines(d, icons, show_win, size=24))
         sk = buildview.skills_line(d, show_win)
         if sk:
             out.append(sk)

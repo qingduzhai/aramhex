@@ -1090,14 +1090,159 @@ def evaluate_combo_synergies(candidate_aid: str, acquired_aids: list[str]) -> di
     }
 
 
-def get_augment_core_items(augment_id: str, store: Any = None) -> list[dict[str, Any]]:
+def get_augment_core_items(augment_id: str, store: Any = None, hero_id: str | None = None) -> list[dict[str, Any]]:
     """
     获取单个海克斯专属的核心必出质变装备。
+    支持结合英雄专属特化与主流流派母版补全。
     """
     aid_str = str(augment_id or "")
     if aid_str in AUGMENT_PIVOT_ANCHORS:
         return AUGMENT_PIVOT_ANCHORS[aid_str].get("items", [])
+
+    if hero_id:
+        hid_str = str(hero_id)
+        if hid_str in DUAL_PLAYSTYLE_PROFILES:
+            dual = DUAL_PLAYSTYLE_PROFILES[hid_str]
+            if aid_str in dual["candidate_augments"]:
+                return dual["items"]
+        hint = get_synergy_item_hint(store, hid_str, aid_str)
+        if hint and hint.get("items"):
+            return [{"id": x.get("item") or x.get("id"), "name": x.get("name", "")} for x in hint["items"]]
+
     return []
+
+
+def get_hero_rune_build(hero_id: str | None, acquired_aids: list[str] | None, store: Any = None) -> dict[str, Any]:
+    """
+    推导英雄当前最契合的【符文专精流派出装】：
+    1. 若局内已选海克斯 (acquired_aids)，优先推导海克斯强联动（如小蜜蜂狗熊、珠光大腕女警、心之钢反甲、双刀流等）；
+    2. 若暂未选海克斯，结合英雄在 4.0 绝活攻略中的主流定位，生成【预备推荐流派】，并在选入符文后动态转轨；
+    3. 返回完整 5 件神装路线（含 ID、名称、图标），并附带流派质变联动机制解析。
+    """
+    hid_str = str(hero_id or "")
+    acq_list = [str(a) for a in (acquired_aids or []) if a]
+    items_dict = getattr(store, "items", {}) or {}
+    aug_dict = getattr(store, "augments", {}) or {}
+
+    def format_item(it: dict[str, Any]) -> dict[str, Any]:
+        iid = str(it.get("id") or it.get("item") or "")
+        meta = items_dict.get(iid, {})
+        name = it.get("name") or meta.get("name") or iid
+        icon = it.get("icon") or meta.get("icon")
+        return {"id": iid, "item": iid, "name": name, "icon": icon}
+
+    aug_details = []
+    for aid in acq_list:
+        ameta = aug_dict.get(aid, {})
+        aug_details.append({
+            "id": aid,
+            "name": ameta.get("name", aid),
+            "rarity": ameta.get("rarity", "")
+        })
+
+    matched_build = None
+    matched_explanation = ""
+    matched_source = ""
+    combo_items = []
+
+    # 1. 尝试从已持海克斯组合与转轨中匹配
+    # 1.1 组合联动匹配 (AUGMENT_COMBOS)
+    if len(acq_list) >= 2:
+        for i in range(len(acq_list)):
+            for j in range(i + 1, len(acq_list)):
+                pair = {acq_list[i], acq_list[j]}
+                for combo in AUGMENT_COMBOS:
+                    if combo["pair"] == pair:
+                        matched_build = combo.get("name")
+                        matched_explanation = f"激活【{combo['name']}】组合：{combo['desc']}"
+                        matched_source = f"组合联动【{combo['name']}】"
+                        combo_items = combo.get("core_items", [])
+                        break
+                if matched_build:
+                    break
+            if matched_build:
+                break
+
+    # 1.2 英雄特化转轨匹配 (DUAL_PLAYSTYLE_PROFILES)
+    if not matched_build and hid_str in DUAL_PLAYSTYLE_PROFILES:
+        dual = DUAL_PLAYSTYLE_PROFILES[hid_str]
+        for aid in acq_list:
+            if aid in dual["candidate_augments"]:
+                aname = (aug_dict.get(aid) or {}).get("name") or aid
+                matched_build = dual["build_name"]
+                matched_explanation = f"已选质变符文【{aname}】：触发 4.0 绝活流派质变，专属装备路线直接拉满！"
+                matched_source = f"绝活符文【{aname}】"
+                combo_items = dual["items"]
+                break
+
+    # 1.3 单海克斯锚点匹配 (AUGMENT_PIVOT_ANCHORS)
+    if not matched_build:
+        for aid in acq_list:
+            if aid in AUGMENT_PIVOT_ANCHORS:
+                anchor = AUGMENT_PIVOT_ANCHORS[aid]
+                aname = (aug_dict.get(aid) or {}).get("name") or aid
+                matched_build = anchor["build_name"]
+                matched_explanation = f"已选符文【{aname}】：该符文机制大幅改变出装优先级，推荐优先合成上述核心装备。"
+                matched_source = f"质变符文【{aname}】"
+                combo_items = anchor["items"]
+                break
+
+    # 1.4 若局内有符文已选成功匹配
+    if matched_build and combo_items:
+        archetype_key = HERO_ARCHETYPE_MAP.get(hid_str, "Bruiser_Drain")
+        template = ARCHETYPE_BUILD_TEMPLATES.get(archetype_key, ARCHETYPE_BUILD_TEMPLATES['Bruiser_Drain'])
+        full_items = list(combo_items)
+        seen_ids = {str(it.get("id") or it.get("item")) for it in full_items}
+        for it in template.get("items", []):
+            iid = str(it.get("id") or it.get("item"))
+            if iid not in seen_ids:
+                seen_ids.add(iid)
+                full_items.append(it)
+            if len(full_items) >= 5:
+                break
+
+        return {
+            "build_name": matched_build,
+            "status_label": f"已根据【{matched_source}】质变转轨",
+            "is_rune_adapted": True,
+            "items": [format_item(x) for x in full_items[:5]],
+            "explanation": matched_explanation,
+            "augments": aug_details
+        }
+
+    # 2. 未匹配到专属海克斯（或尚未选择海克斯）时的推荐流派
+    if hid_str in DUAL_PLAYSTYLE_PROFILES:
+        dual = DUAL_PLAYSTYLE_PROFILES[hid_str]
+        full_items = list(dual["items"])
+        archetype_key = HERO_ARCHETYPE_MAP.get(hid_str, "Bruiser_Drain")
+        template = ARCHETYPE_BUILD_TEMPLATES.get(archetype_key, ARCHETYPE_BUILD_TEMPLATES['Bruiser_Drain'])
+        seen_ids = {str(it.get("id") or it.get("item")) for it in full_items}
+        for it in template.get("items", []):
+            iid = str(it.get("id") or it.get("item"))
+            if iid not in seen_ids:
+                seen_ids.add(iid)
+                full_items.append(it)
+            if len(full_items) >= 5:
+                break
+        return {
+            "build_name": dual["build_name"],
+            "status_label": "4.0 绝活流派预备推荐（选入海克斯后动态转轨）",
+            "is_rune_adapted": False,
+            "items": [format_item(x) for x in full_items[:5]],
+            "explanation": "该英雄在 4.0 版本的强力打法。三选一若刷出对应质变海克斯将彻底激活！",
+            "augments": aug_details
+        }
+
+    archetype_key = HERO_ARCHETYPE_MAP.get(hid_str, "Bruiser_Drain")
+    template = ARCHETYPE_BUILD_TEMPLATES.get(archetype_key, ARCHETYPE_BUILD_TEMPLATES['Bruiser_Drain'])
+    return {
+        "build_name": template["name"],
+        "status_label": "4.0 标准流派推荐（选入海克斯后动态转轨）",
+        "is_rune_adapted": False,
+        "items": [format_item(x) for x in template["items"][:5]],
+        "explanation": "当前为该英雄主流出装公式。局内选择海克斯符文后，将实时推导专属质变出装路线。",
+        "augments": aug_details
+    }
 
 
 def get_acquired_augments_build_advice(acquired_aids: list[str], store: Any = None) -> list[dict[str, Any]]:
