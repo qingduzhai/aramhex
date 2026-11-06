@@ -225,3 +225,158 @@ def test_new_augment_combos_evaluation():
     assert eval_res3["bonus"] >= 5.0
     assert any("巨人体魄顺劈狂澜" in r for r in eval_res3["reasons"])
 
+def test_blitzcrank_archmage_synergy():
+    # 布里茨 + 大法师 (2087)
+    hint = synergy.get_synergy_item_hint(None, "53", "2087")
+    assert hint is not None
+    assert "大法师无限R" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "6655" in item_ids  # 卢登
+    assert "4645" in item_ids  # 影焰
+
+def test_jhin_tap_dance_synergy():
+    # 烬 + 踢踏舞 (1081)
+    hint = synergy.get_synergy_item_hint(None, "202", "1081")
+    assert hint is not None
+    assert "瘸天帝" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3094" in item_ids  # 火炮
+    assert "3031" in item_ids  # 无尽
+
+def test_gangplank_archmage_synergy():
+    # 普朗克 + 大法师 (2087)
+    hint = synergy.get_synergy_item_hint(None, "41", "2087")
+    assert hint is not None
+    assert "大法师无限大" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3031" in item_ids  # 无尽
+    assert "6676" in item_ids  # 收集者
+
+def test_jayce_sniper_synergy():
+    # 杰斯 + 最万用的瞄准镜 (1115)
+    hint = synergy.get_synergy_item_hint(None, "126", "1115")
+    assert hint is not None
+    assert "千码瞄准" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3031" in item_ids
+
+def test_ashe_archmage_synergy():
+    # 艾希 + 大法师 (2087)
+    hint = synergy.get_synergy_item_hint(None, "22", "2087")
+    assert hint is not None
+    assert "泉水指挥官" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "6655" in item_ids
+
+def test_tahmkench_mirage_synergy():
+    # 塔姆 + 虚幻武器 (1029)
+    hint = synergy.get_synergy_item_hint(None, "223", "1029")
+    assert hint is not None
+    assert "三重被动" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3084" in item_ids  # 心之钢
+
+def test_ryze_overload_synergy():
+    # 瑞兹 + 超负荷 (2123)
+    hint = synergy.get_synergy_item_hint(None, "13", "2123")
+    assert hint is not None
+    assert "超负荷法术加特林" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3003" in item_ids
+
+def test_brand_enpassant_synergy():
+    # 布兰德 + 吃过路兵 (2098)
+    hint = synergy.get_synergy_item_hint(None, "63", "2098")
+    assert hint is not None
+    assert "过路兵全向破绽" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "6653" in item_ids  # 面具
+
+def test_ornn_magic_synergy():
+    # 奥恩 + 精怪魔法 (1194)
+    hint = synergy.get_synergy_item_hint(None, "516", "1194")
+    assert hint is not None
+    assert "精怪魔法重装爆轰" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "8020" in item_ids  # 深渊面具
+
+def test_senna_mirage_synergy():
+    # 赛娜 + 虚幻武器 (1029)
+    hint = synergy.get_synergy_item_hint(None, "235", "1029")
+    assert hint is not None
+    assert "隔空叠魂" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3087" in item_ids  # 电刀
+
+def test_mordekaiser_conduit_synergy():
+    # 莫德凯撒 + 炼狱导管 (1045)
+    hint = synergy.get_synergy_item_hint(None, "82", "1045")
+    assert hint is not None
+    assert "导管圣火领域" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3116" in item_ids  # 冰杖
+
+def test_jarvan_terrain_synergy():
+    # 嘉文四世 + 地形专家 (2129)
+    hint = synergy.get_synergy_item_hint(None, "59", "2129")
+    assert hint is not None
+    assert "地形专家自爆AP皇子" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "6656" in item_ids
+
+def test_vayne_rapid_fire_synergy():
+    # 薇恩 + 双发快射 (2010)
+    hint = synergy.get_synergy_item_hint(None, "67", "2010")
+    assert hint is not None
+    assert "双发快射破败十六环" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3153" in item_ids  # 破败
+
+def test_garen_quickstride_synergy():
+    # 盖伦 + 快步 (2064)
+    hint = synergy.get_synergy_item_hint(None, "86", "2064")
+    assert hint is not None
+    assert "快步双突进挺进旋转" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3078" in item_ids
+
+def test_sylas_sniper_mage_synergy():
+    # 塞拉斯 + 神射法师 (1129)
+    hint = synergy.get_synergy_item_hint(None, "517", "1129")
+    assert hint is not None
+    assert "神射暴击邪修" in hint["title"]
+    item_ids = [x["item"] for x in hint["items"]]
+    assert "3031" in item_ids  # 无尽
+
+def test_combos_26_to_31_evaluation():
+    # 26. 叠角龙 (1204) + 钢化你心 (1152)
+    res26 = synergy.evaluate_combo_synergies("1204", ["1152"])
+    assert res26["bonus"] >= 7.0
+    assert any("叠角狂澜八倍叠钢" in r for r in res26["reasons"])
+
+    # 27. 超凡邪恶 (1390) + 尤里卡 (1030)
+    res27 = synergy.evaluate_combo_synergies("1390", ["1030"])
+    assert res27["bonus"] >= 8.0
+    assert any("邪恶尤里卡法神永动" in r for r in res27["reasons"])
+
+    # 28. 双发快射 (2010) + 秘术冲拳 (1058)
+    res28 = synergy.evaluate_combo_synergies("2010", ["1058"])
+    assert res28["bonus"] >= 7.0
+    assert any("双发冲拳极速刷招" in r for r in res28["reasons"])
+
+    # 29. 踢踏舞 (1081) + 全凭身法 (1019)
+    res29 = synergy.evaluate_combo_synergies("1081", ["1019"])
+    assert res29["bonus"] >= 7.0
+    assert any("踢踏身法万速天帝" in r for r in res29["reasons"])
+
+    # 30. 地形专家 (2129) + 面包和奶酪 (1151)
+    res30 = synergy.evaluate_combo_synergies("2129", ["1151"])
+    assert res30["bonus"] >= 6.0
+    assert any("地形封路无限领域" in r for r in res30["reasons"])
+
+    # 31. 高压锅 (2102) + 巨像的勇气 (1018)
+    res31 = synergy.evaluate_combo_synergies("2102", ["1018"])
+    assert res31["bonus"] >= 6.0
+    assert any("高压巨像全域熔炉" in r for r in res31["reasons"])
+
+
