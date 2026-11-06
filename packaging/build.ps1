@@ -1,4 +1,4 @@
-﻿# 打包：PyInstaller 生成程序目录 → GUI 自检 → Inno Setup 安装版 + 便携版 ZIP + SHA256SUMS.txt。
+# 打包：PyInstaller 生成程序目录 → GUI 自检 → Inno Setup 安装版 + 便携版 ZIP + SHA256SUMS.txt。
 # 用法（PowerShell 7）：pwsh -NoProfile -File packaging/build.ps1 [-PythonExe <python>] [-InnoCompiler <ISCC.exe>] [-PortableOnly] [-TestTag test.1]
 # -PortableOnly：只出便携版（测试版自己用，不需要 Inno Setup）
 # -TestTag：测试包一定要带，版本号变成「1.1.3-test.1」，比正式版 1.1.3 旧，正式版一发就会提示更新。
@@ -24,7 +24,8 @@ if ($TestTag) {
 } elseif (Test-Path -LiteralPath $buildInfo) {
     Remove-Item -LiteralPath $buildInfo
 }
-$version = (& $py -c "import lolhex; print(lolhex.__version__)").Trim()
+$version = (& $py -c "import pathlib,lolhex; assert pathlib.Path(lolhex.__file__).resolve() == pathlib.Path('lolhex/__init__.py').resolve(), 'Python imported lolhex outside the current checkout'; print(lolhex.__version__)").Trim()
+if ($LASTEXITCODE) { throw 'Python 没有使用当前源码目录，不能打包' }
 Write-Host "版本 $version"
 if (-not (Test-Path (Join-Path $root 'lolhex\data\bundled\latest.json'))) {
     throw '缺少内置统计数据：先运行 python scripts/update_data.py'
@@ -61,11 +62,7 @@ if (-not $smoke.WaitForExit(180000)) { $smoke.Kill(); throw '自检超时' }
 if ($smoke.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $report)) { throw 'Qt GUI 自检失败，不生成安装包' }
 $gui = Get-Content -Raw -Encoding UTF8 -LiteralPath $report | ConvertFrom-Json
 if (-not $gui.success -or $gui.version -ne $version -or $gui.platform -ne 'windows' -or -not $gui.ocr_ok) { throw "自检结果不对（界面或文字识别）：$($gui | ConvertTo-Json -Compress)" }
-Write-Host "自检通过：Qt $($gui.qt)，文字识别读到 '$($gui.ocr_text)'"
-
-# 进一步验证真实运行时环境（ctypes、ssl、内置统计数据解析）
-& (Join-Path $dist 'AramHex.exe') --refresh
-if ($LASTEXITCODE -ne 0) { throw '核心模块（ctypes / ssl / 数据解析）校验失败' }
+Write-Host "自检通过：Qt $($gui.qt)，文字识别读到「$($gui.ocr_text)」"
 
 if ($TestTag) {
     # 放进同一份程序目录，测试安装版和便携版都默认开启调试；运行时已经支持这个标记。

@@ -1109,9 +1109,10 @@ def get_synergy_item_hint(store: Any, hero_id: str | None, augment_id: str | Non
         try:
             hint = store.augment_items(hero_id, augment_id)
             if hint and hint.get("items"):
-                hint["title"] = "核心协同出装 · 统计优选"
-                hint["footer"] = "选该符文后的推荐装备配合"
-                return hint
+                hint_copy = dict(hint)
+                hint_copy["title"] = "核心协同出装 · 统计优选"
+                hint_copy["footer"] = "选该符文后的推荐装备配合"
+                return hint_copy
         except Exception:
             pass
 

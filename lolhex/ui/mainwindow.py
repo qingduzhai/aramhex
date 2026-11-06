@@ -241,9 +241,14 @@ class UpdateWorker(QThread):
                     changed, stale = patch.prepare(self.info["version"], self.progress.emit, phase=self.phase.emit)
                     self.patched.emit(changed, stale)
                     return
+                except patch.NotWritable as e:
+                    log.info("软件所在的文件夹不能写入：%s", e)
+                    self.manual.emit("软件所在的文件夹不能写入（比如装在 Program Files），这次需要手动下载安装。",
+                                     update.pan_links())
+                    return
                 except patch.NeedFullInstall as e:
                     log.info("要整包更新：%s", e)
-                    reason = "这次更新需要重新下载安装包。"
+                    reason = str(e) if isinstance(e, patch.IncompleteRollback) else "这次更新需要重新下载安装包。"
                 except Exception as e:
                     log.warning("增量更新失败：%s", e)
                     self.manual.emit("更新文件下载失败。", update.pan_links())

@@ -216,9 +216,8 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
         meta = store.augments.get(aid, {})
         r.update(name=display_name(aid, meta.get("name", aid)), rarity=meta.get("rarity"), icon=meta.get("icon"),
                  desc=meta.get("desc", ""))
-        if hero_id:
-            from . import synergy
-            hint = synergy.get_synergy_item_hint(store, hero_id, aid)
+        if aid == WEAPON_OF_DESTINY and hero_id and hasattr(store, "augment_items"):
+            hint = store.augment_items(hero_id, aid)
             if hint:
                 r["item_hint"] = hint
         if aid in excluded:
@@ -324,13 +323,6 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
                     seen_items.add(iid)
                     must_buy.append(it)
             r["must_buy_items"] = must_buy
-            if must_buy and not r.get("item_hint"):
-                r["item_hint"] = {
-                    "source": "stats",
-                    "title": "核心必出装备 · 符文协同",
-                    "footer": "与当前符文或已持符文协同度极高，核心必出",
-                    "items": [{"item": it["id"], "name": it["name"]} for it in must_buy[:3]]
-                }
 
         results.append(r)
 

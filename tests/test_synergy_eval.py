@@ -41,8 +41,8 @@ def test_recommend_evaluate_with_synergy(store):
 
     for r in res["slots"]:
         assert "decision_badge" in r
-        assert "item_hint" in r
-        hint = r["item_hint"]
+        assert "must_buy_items" in r
+        hint = synergy.get_synergy_item_hint(store, "51", r["augment_id"])
         assert "title" in hint
         assert "items" in hint
         assert len(hint["items"]) > 0
