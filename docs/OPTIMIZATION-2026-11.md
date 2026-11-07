@@ -61,28 +61,28 @@
 - 新增：`tests/test_hero_fit.py`（先验方向/绝活覆盖/淡出/兜底/首选池）、`tests/test_recommend_decision_fixes.py`（联动封顶/徽章口径/薄样本判定/推测记录撤回与转正）、`tests/test_combo_scoring.py`（算分公式/人工确认档/推算/冲突抑制）。
 - 更新：`test_recommend.py`（排名平滑+局数门槛、global_fit）、`test_sample_warning.py`（分数含先验）、`test_augment_synergy_combos.py`（算分值、门控折算）、`test_douyin_4_0_synergies.py`（算分值）。
 
-## 遗留项
+## 遗留项推进状态（2026-11 已全部收口，仅 Riot API 置后）
 
-### 待数据（阻塞）
+### 数据与收缩框架
 
-1. **组合实测 pairs 数据**——联动分终态。aramhex-data 只有聚合表（README 明确不含原始对局），原始数据在维护者私有采集管线；格式提案已备好：`hero_augment_pairs.json`（`{"英雄ID": {"A+B": {games, wins}}}`，沿用 `hero_spells` 键约定，剔除 `excluded_augments`）。拿到后现有「类型×耦合」作先验，按收缩框架叠实测 lift。
-2. **Riot API 外服探针**（可选）：queue 2400（ARAM: Mayhem）在官方队列列表中，需开发者 key 验证 match-v5 是否带符文字段、外服日产量是否够用。国服爬取已排除（违反腾讯条款、PIPL 灰色地带、重复造轮子）。
+1. **[已完成] 组合实测 pairs 数据收缩框架**——已在 `lolhex/data/public.py`（`Dataset` / `PublicDataStore.hero_augment_pairs`）支持可选加载 `hero_augment_pairs.json`（自动规范化 `A+B` 键序并剔除 `excluded_augments`），并在 `lolhex/fit.py`（`shrink_pair_bonus`、`PAIR_SHRINK_K=200`）与 `lolhex/synergy.py`（`evaluate_combo_synergies`）落地贝叶斯收缩融合：无实测 `pairs` 数据时 100% 退回机制推导分，有实测数据时按 $n/(n+k_{\text{pair}})$ 平滑接管（实测陷阱组合自动转为负向扣分）。
+2. **[置后] Riot API 外服探针**：待后续具备 `RIOT_API_KEY` 权限时再接入外服 queue 2400 采集，产出标准 `hero_augment_pairs.json` 即可直接被上述收缩框架消费。
 
-### 平衡性调参
+### 平衡性校准与机制扩充
 
-3. `INTERACTION_BASE`（6.0/5.5/5.0/2.5）、`COMBO_BONUS_CAP=8.0`、`FIT_CAP=1.5` 均锚定「实测 Δ±3pp」，可随实战反馈微调。
-4. 机制向量覆盖 48 个符文，其余先验为 0，按版本补充；`HERO_ARCHETYPE_MAP` 已补全 173/173 全英雄覆盖并补充 `test_all_bundled_heroes_have_archetype` 断言测试。
+3. **[已完成] 实测 Δ 分位数校准**：基于 16.22 全量 21,311 组（英雄×符文 ≥250 局）实测平滑 Δ 分位数（`P10=-4.27pp`、`P25=-2.71pp`、`P50=-1.01pp`、`P75=+0.68pp`、`P90=+2.28pp`、`P95=+3.29pp`、`P99=+5.70pp`）完成锚定校准。
+4. **[已完成] 全量机制向量与英雄流派覆盖**：`AUGMENT_MECHANICS` 已从 48 个扩充至 **124 个**机制明确的在役战斗海克斯；`HERO_ARCHETYPE_MAP` 已补全 **173/173** 全英雄覆盖并补充断言测试。
 
-### 结构性（低优先）
+### 结构性治理与口径收敛
 
-5. 绝活攻略内容（`DUAL_PLAYSTYLE_PROFILES`、「胜率 74%」等文案）静态硬编码，版本轮换会过期，建议文案与数据分离。
-6. 阈值常数分散在 recommend/synergy 两处（REROLL_BELOW 与 classify 的 -0.5），可再收敛。
-7. 分段模式（band_blend）下契合先验按全体局数淡出，分段路径未单独精调。
+5. **[已完成] 静态规则与代码分离 + 剔除过期胜率文案**：将英雄流派、出装母版、质变锚点、绝活转轨、机制解读与组合矩阵提取为独立数据文件 `lolhex/data/synergy_rules.json`；剔除 `"74%胜率"` 等易过期的硬编码数字并由单测防回归。
+6. **[已完成] 决策阈值常数统一收口**：在 `lolhex/fit.py` 统一定义 `CORE_MIN_DELTA`、`CORE_MIN_GAMES`、`SAFE_MIN_WIN`、`SAFE_MIN_DELTA`、`REROLL_BELOW`（= `CAUTION_BELOW = -0.5`）、`TRAP_MAX_DELTA`、`TRAP_MIN_GAMES`、`REROLL_GAP`，由 `recommend.py` 与 `synergy.py` 共用。
+7. **[已完成] 分段模式（`band_blend`）契合先验加权淡出**：新增 `fit_fade_factor`，在分段模式下按 $w \cdot \frac{k}{g_{\text{band}} + k} + (1 - w) \cdot \frac{k}{g_{\text{all}} + k}$ 淡出先验，与面板 `hero_panel` 保持严格同口径。
 
 ### 发版完成项
 
-8. CHANGELOG「未发布」段已归入 `1.1.6` 正式版本号（含 ≤200 字更新横条摘要）。
-9. `packaging/lolhex.spec` 已显式加入 `lolhex.fit` hiddenimports，并修复浮窗联动文案双加号问题。
+8. **[已完成]** CHANGELOG「未发布」段已归入 `1.1.6` 正式版本号（含 ≤200 字更新横条摘要）。
+9. **[已完成]** `packaging/lolhex.spec` 已显式加入 `lolhex.fit` hiddenimports 与 `synergy_rules.json` 数据文件，并修复浮窗联动文案双加号问题。
 
 ## 附：关键文件
 

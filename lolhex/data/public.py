@@ -165,7 +165,7 @@ def _validate_dataset_shape(folder: Path, manifest: dict) -> None:
             _validate_table_shape(name, _read(folder / name))
         elif name.startswith("bands/") and name.endswith("/hero_augments.json"):
             _validate_table_shape(name, _read(folder / name), augment=True)
-        elif name.rsplit("/", 1)[-1] in ("hero_spells.json", "hero_items.json"):
+        elif name.rsplit("/", 1)[-1] in ("hero_spells.json", "hero_items.json", "hero_augment_pairs.json"):
             # 可选表（含分段里的）只校验到「英雄 → 对象」这一层；每行坏数据由面板过滤，保留能用的行
             value = _read(folder / name)
             if not isinstance(value, dict):
@@ -749,6 +749,21 @@ class PublicStore(DataStore):
         """自采统计的装备（hero_items.json：英雄 → 装备 ID → 局数/胜场）。没有这个文件返回 []。"""
         rows, label = self._hero_rows("hero_items.json", hero_id)
         return [{"item": r["key"], "games": r["games"], "win": r["win"]} for r in rows], label
+
+    def hero_augment_pairs(self, hero_id: str | None) -> dict[str, dict]:
+        """自采统计的双符文共现胜率（hero_augment_pairs.json：英雄 → "A+B" → 局数/胜场）。
+        清单里没有这个文件时返回 {}，联动推荐退回纯机制先验算分；自动过滤 excluded_augments。"""
+        if not hero_id or not self.dataset:
+            return {}
+        excluded = set(self.excluded_augments())
+        rows, _ = self._hero_rows("hero_augment_pairs.json", str(hero_id))
+        out: dict[str, dict] = {}
+        for r in rows:
+            parts = [x for x in r["key"].split("+") if x.isdigit()]
+            if len(parts) == 2 and parts[0] != parts[1] and not (set(parts) & excluded):
+                pair_key = "+".join(sorted(parts, key=int))
+                out[pair_key] = {"games": r["games"], "wins": r["wins"], "win": r["win"]}
+        return out
 
     def augment_items(self, hero_id: str, augment_id: str) -> dict | None:
         """按英雄、海克斯配置的装备建议；独立于普通出装统计，保持数据提供的顺序。"""

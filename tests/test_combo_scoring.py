@@ -53,3 +53,42 @@ def test_conflicts_stay_manual_and_suppress_generic_bonus():
     res = synergy.evaluate_combo_synergies("1225", ["3018"])
     assert res["penalty"] == -5.0
     assert res["bonus"] == 0.0  # 已判冲突的组合不再推算正联动（冲突即结论）
+
+
+def test_empirical_pair_shrinkage_blends_and_overrides_prior(store):
+    # 1. 无实测 pairs 数据时：100% 退回机制推导值（6.0）
+    s0 = fit.shrink_pair_bonus(6.0, None, 0.50)
+    assert s0["bonus"] == 6.0 and s0["games"] == 0
+
+    # 2. 200 局（恰好等于 PAIR_SHRINK_K=200）：实测 Lift (+10pp) 与机制先验 (+6pp) 各信一半 → +8.0pp
+    s_mid = fit.shrink_pair_bonus(6.0, {"games": 200, "wins": 120, "win": 0.60}, 0.50)
+    assert s_mid["bonus"] == pytest.approx(8.0, 0.01)
+
+    # 3. 网红组合在大样本（4000 局）实测反而掉胜率（45% vs 基准 50% = -5.0pp）：
+    #    收缩后变为负分，evaluate_combo_synergies 将其计入 penalty 而非正加分
+    res_trap = synergy.evaluate_combo_synergies(
+        "1092", ["1048"],
+        pair_stats={"1048+1092": {"games": 4000, "wins": 1800, "win": 0.45}},
+        baseline_win=0.50,
+    )
+    assert res_trap["bonus"] == 0.0
+    assert res_trap["penalty"] < -4.0
+    assert any("实测共现 4000局" in r for r in res_trap["reasons"])
+
+    # 4. DataStore.hero_augment_pairs 过滤 excluded_augments 并规范化键序
+    store.dataset.meta["excluded_augments"] = {"1337": {"name": "尊我为王", "reason": "偏差"}}
+    store.dataset._tables["opt:hero_augment_pairs.json"] = {
+        "17": {
+            "1092+1048": {"games": 300, "wins": 180},
+            "1337+1048": {"games": 500, "wins": 400},
+        }
+    }
+    store.dataset.manifest["files"]["hero_augment_pairs.json"] = {"sha256": "0" * 64}
+    try:
+        pairs = store.hero_augment_pairs("17")
+        assert "1048+1092" in pairs
+        assert "1048+1337" not in pairs and "1337+1048" not in pairs
+    finally:
+        store.dataset.manifest["files"].pop("hero_augment_pairs.json", None)
+        store.dataset._tables.pop("opt:hero_augment_pairs.json", None)
+

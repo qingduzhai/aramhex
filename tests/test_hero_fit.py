@@ -91,3 +91,35 @@ def test_all_bundled_heroes_have_archetype():
     for hid, arch in HERO_ARCHETYPE_MAP.items():
         assert arch in fit.ARCHETYPE_AFFINITY, f"Unknown archetype {arch} for hero {hid}"
 
+
+def test_expanded_augment_mechanics_and_clean_rules():
+    import re
+    from lolhex import synergy
+
+    # 机制向量扩充至 120+ 个在役海克斯，所有机制维度均合法
+    assert len(fit.AUGMENT_MECHANICS) >= 120
+    for aid, mech in fit.AUGMENT_MECHANICS.items():
+        assert aid.isdigit() and mech
+        for k, w in mech.items():
+            assert k in fit.MECHANIC_CN and 0 < w <= 1.0
+
+    # 统一阈值常数单调有序，且 recommend 与 synergy 共用
+    assert fit.CORE_MIN_DELTA > fit.SAFE_MIN_DELTA > fit.CAUTION_BELOW == recommend.REROLL_BELOW > fit.TRAP_MAX_DELTA
+    assert recommend.REROLL_GAP == fit.REROLL_GAP
+
+    # 静态文案已与代码分离并剔除硬编码胜率百分比（如「74%胜率」）
+    for aid, text in synergy.AUGMENT_META_EXPLANATIONS.items():
+        assert not re.search(r"\d+(\.\d+)?%\s*胜率|胜率.*\d+%", text), f"Stale winrate in {aid}: {text}"
+    for hid, prof in synergy.DUAL_PLAYSTYLE_PROFILES.items():
+        assert "胜率" not in prof["build_name"], f"Stale winrate in hero {hid}: {prof['build_name']}"
+
+
+def test_band_blend_fades_fit_with_weighted_band_sample():
+    # 全体 30000 局（几乎无先验）但高分段仅 150 局（w=0.5）：分段模式下先验按加权淡出，不被全体局数完全抹平
+    fade_all_only = recommend.fit_fade_factor(30000, 300)
+    fade_blended = recommend.fit_fade_factor(30000, 300, band_games=150, band_weight=0.5)
+    assert fade_all_only < 0.02
+    assert fade_blended == pytest.approx(0.5 * (300 / 450) + 0.5 * (300 / 30300), 1e-4)
+    assert fade_blended > 0.30
+
+

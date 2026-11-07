@@ -20,6 +20,7 @@ datas += [("../lolhex/data/hero_icons.json", "lolhex/data")]  # 腾讯英雄头�
 datas += [("../lolhex/data/static_bundled.json", "lolhex/data")]  # 腾讯官方资料兜底（scripts/update_static.py）
 datas += [("../lolhex/data/hero_bundled.json", "lolhex/data")]  # 单英雄官方出装、加点兜底（同上）
 datas += [("../lolhex/data/item_icons.json", "lolhex/data")]  # 装备、召唤师技能图标兜底（同上）
+datas += [("../lolhex/data/synergy_rules.json", "lolhex/data")]  # 符文协同与绝活规则库
 datas += [("../lolhex/data/cacert.pem", "lolhex/data")]  # 根证书（去掉 eMudhra，scripts/make_cacert.py）
 binaries = collect_dynamic_libs("onnxruntime")
 

@@ -51,7 +51,8 @@ def hero_panel(store, hero_key, k: int = 300, *, allow_network: bool = True) -> 
             pass
         elif blend is not None:
             bl = blend.get(a["id"]) or {}
-            d = recommend.apply_fit(bl.get("delta"), bl.get("games_all"), fit_adj, k)
+            d = recommend.apply_fit(bl.get("delta"), bl.get("games_all"), fit_adj, k,
+                                    band_games=bl.get("games"), band_weight=bl.get("weight"))
         elif x.get("win") is not None and x.get("games") and ag.get("sample_win") is not None:
             d = recommend.apply_fit(recommend.smoothed_delta(x["win"], x["games"], ag["sample_win"], k),
                                     x["games"], fit_adj, k)

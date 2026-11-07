@@ -37,8 +37,8 @@ from . import fit as fit_mod
 from .data.tencent import RARITY_CN
 
 TIER_PP = {"S": 1.5, "A": 0.5, "B": -0.5, "C": -1.5, "D": -2.5}
-REROLL_BELOW = -0.5  # 低于英雄基准 0.5pp 以上：可考虑刷新
-REROLL_GAP = 2.0     # 比首选低 2pp 以上：可考虑刷新
+REROLL_BELOW = fit_mod.REROLL_BELOW  # 低于英雄基准 0.5pp 以上：可考虑刷新（与 synergy.classify_augment_tier 共用）
+REROLL_GAP = fit_mod.REROLL_GAP      # 比首选低 2pp 以上：可考虑刷新
 RELIABLE_GAMES = 1000  # 本英雄局数达到这个数才能当首选
 TOO_FEW_RATIO = 0.1    # 局数不到同屏最多那张的 1/10：样本太少，提示刷新
 NODATA_NOTE = "完成任务即被替换，无可靠数据"
@@ -117,15 +117,32 @@ def smoothed_delta(win: float | None, games: int | None, base: float | None, k: 
     return (s - base) * 100
 
 
-def apply_fit(d: float | None, games: int | None, fit_adj: float, k: int) -> float | None:
-    """机制契合先验按 k/(局数+k) 淡出：等价于把平滑基准换成「基准+fit」。panel 与 evaluate 共用。"""
+def fit_fade_factor(games: int | None, k: int, *,
+                    band_games: int | None = None, band_weight: float | None = None) -> float:
+    """机制先验淡出系数 ∈ [0, 1]：
+    - 全体模式：k / (games + k)；
+    - 分段模式（band_blend）：w · k/(band_games + k) + (1 - w) · k/(games_all + k)，
+      等价于在分段平滑与全体平滑阶段分别以「英雄基准 + 先验」为平滑中心后再按 w 合成。"""
+    if not games:
+        return 1.0
+    f_all = k / (games + k)
+    if band_weight is not None and band_weight > 0 and band_games is not None and band_games >= 0:
+        f_band = k / (band_games + k)
+        return band_weight * f_band + (1.0 - band_weight) * f_all
+    return f_all
+
+
+def apply_fit(d: float | None, games: int | None, fit_adj: float, k: int, *,
+              band_games: int | None = None, band_weight: float | None = None) -> float | None:
+    """机制契合先验按样本量淡出：等价于把平滑基准换成「基准+fit」。panel 与 evaluate 共用。"""
     if d is None or not fit_adj or not games:
         return d
-    return d + fit_adj * k / (games + k)
+    return d + fit_adj * fit_fade_factor(games, k, band_games=band_games, band_weight=band_weight)
 
 
-def fit_reason(fit_adj: float, note: str, games: int | None, k: int) -> str:
-    effect = fit_adj * k / (games + k) if games else fit_adj
+def fit_reason(fit_adj: float, note: str, games: int | None, k: int, *,
+               band_games: int | None = None, band_weight: float | None = None) -> str:
+    effect = fit_adj * fit_fade_factor(games, k, band_games=band_games, band_weight=band_weight) if games else fit_adj
     return f"{note}，先验 {effect:+.2f}pp（随局数淡出）"
 
 
@@ -272,18 +289,20 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
             if fit_adj:
                 r["fit"] = fit_adj
 
-            # 1) 本英雄胜率（选了分段：分段和全体按局数综合）
+            # 1) 本英雄胜率（选了分段：分段和全体按局数综合，先验也按分段与全体局数加权淡出）
             a = ag_augs.get(aid)
             bl = (blend or {}).get(aid)
             if bl and base is not None:
-                d = apply_fit(bl["delta"], bl["games_all"], fit_adj, k)
+                d = apply_fit(bl["delta"], bl["games_all"], fit_adj, k,
+                              band_games=bl["games"], band_weight=bl["weight"])
                 r.update(win=bl["win"], games=bl["games"], games_all=bl["games_all"], win_all=bl["win_all"],
                          sample=sample_level(bl["games_all"]), source="public", band_weight=round(bl["weight"], 3))
                 band_part = (f"{label} {bl['games']}局胜率 {bl['win'] * 100:.1f}%" if bl["games"] else f"{label}没有局")
                 r["reasons"].append(f"{band_part}；全体 {bl['games_all']}局胜率 {bl['win_all'] * 100:.1f}%；"
                                     f"按局数综合较英雄基准 {d:+.1f}pp")
                 if fit_adj:
-                    r["reasons"].append(fit_reason(fit_adj, fit_note, bl["games_all"], k))
+                    r["reasons"].append(fit_reason(fit_adj, fit_note, bl["games_all"], k,
+                                                   band_games=bl["games"], band_weight=bl["weight"]))
                 r["score"] = round(d, 2)
                 r["basis"] = "hero_win"
             elif a and a.get("win") is not None and a.get("games") and base is not None:
@@ -319,7 +338,7 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
                     g = global_augs.get(aid)
                     gpart = (min(0.0, 0.5 * (g["win"] - global_mean) * 100)
                              if g and g.get("win") and global_mean else 0.0)
-                    r["score"] = round(max(-3.0, min(-0.2, fit_adj + gpart)), 2)
+                    r["score"] = round(max(-3.0, min(fit_mod.SAFE_MIN_DELTA, fit_adj + gpart)), 2)
                     r["basis"] = "global_fit"
                     parts = [fit_note] if fit_note else []
                     if g and g.get("win") and global_mean:
@@ -328,10 +347,14 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
                 else:
                     r["reasons"].append("暂无可靠数据")
 
-        # 局内多符文联动协同与冲突加权：按候选符文与本英雄的机制契合度折算
+        # 局内多符文联动协同与冲突加权：按候选符文与本英雄的机制契合度折算（若有实测 pairs 则先做贝叶斯收缩）
         if aid and acquired_list:
             from . import synergy
-            combo_eval = synergy.evaluate_combo_synergies(aid, acquired_list)
+            hero_pairs = store.hero_augment_pairs(hero_id) if hasattr(store, "hero_augment_pairs") else None
+            pair_base = r.get("win") if r.get("win") is not None else base
+            combo_eval = synergy.evaluate_combo_synergies(
+                aid, acquired_list, pair_stats=hero_pairs, baseline_win=pair_base
+            )
             gate = fit_mod.combo_gate(aid, hero_id)
             combo_eval["gate"] = round(gate, 3)
             combo_eval["applied_score"] = round(combo_eval["net_score"] * gate, 2)
