@@ -46,12 +46,15 @@ def hero_panel(store, hero_key, k: int = 300, *, allow_network: bool = True) -> 
         meta = store.augments.get(a["id"], {})
         x = ag_augs.get(a["id"]) or {}
         d = None
+        fit_adj = recommend.fit_mod.fit_adjustment(a["id"], hid)[0]
         if a["id"] in provisional:
             pass
         elif blend is not None:
-            d = (blend.get(a["id"]) or {}).get("delta")
+            bl = blend.get(a["id"]) or {}
+            d = recommend.apply_fit(bl.get("delta"), bl.get("games_all"), fit_adj, k)
         elif x.get("win") is not None and x.get("games") and ag.get("sample_win") is not None:
-            d = recommend.smoothed_delta(x["win"], x["games"], ag["sample_win"], k)
+            d = recommend.apply_fit(recommend.smoothed_delta(x["win"], x["games"], ag["sample_win"], k),
+                                    x["games"], fit_adj, k)
         augs.append({**a, "name": meta.get("name", a["id"]), "icon": meta.get("icon"),
                      "desc": meta.get("desc"), "win": x.get("win"), "games": x.get("games"),
                      "source": ("pbe" if a["id"] in provisional else "public") if x else None,

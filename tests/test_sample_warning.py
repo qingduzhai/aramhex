@@ -26,7 +26,9 @@ def test_three_small_samples_warn_without_changing_scores_or_order(store):
         assert row["sample_warning"] and not row.get("thin")
         assert any("样本偏少" in reason for reason in row["reasons"])
         assert (row["games"], row["win"]) == (games, win)
-        assert row["score"] == round(recommend.smoothed_delta(win, games, ev["base_win"], 300), 2)
+        f = recommend.fit_mod.fit_adjustment(row["augment_id"], "17")[0]
+        expected = recommend.apply_fit(recommend.smoothed_delta(win, games, ev["base_win"], 300), games, f, 300)
+        assert row["score"] == round(expected, 2)
 
 
 @pytest.mark.parametrize("games,thin", [([99, 1000, 999], "too_few"), ([100, 1000, 999], "few")])

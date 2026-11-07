@@ -210,19 +210,20 @@ def test_tristana_infusion_synergy():
     assert "3115" in item_ids
 
 def test_new_augment_combos_evaluation():
-    # 死亡之环 (1015) + 易损 (1092)
+    # 联动分已由机制推导（类型 × 耦合度），不再用攻略视频拍的手工值
+    # 死亡之环 (1015) + 易损 (1092)：乘算，但机制向量零共享 → 人工确认档 0.5 → 6.0×0.5
     eval_res = synergy.evaluate_combo_synergies("1015", ["1092"])
-    assert eval_res["bonus"] >= 6.0
+    assert eval_res["bonus"] == 3.0
     assert any("死亡飞弹连锁风暴" in r for r in eval_res["reasons"])
 
-    # 小蜜蜂 (3086) + 虚幻武器 (1029)
+    # 小蜜蜂 (3086) + 虚幻武器 (1029)：共享攻击特效满耦合 → 频次放大 5.5
     eval_res2 = synergy.evaluate_combo_synergies("3086", ["1029"])
-    assert eval_res2["bonus"] >= 7.0
+    assert eval_res2["bonus"] == 5.5
     assert any("蜜蜂虚幻全额引爆" in r for r in eval_res2["reasons"])
 
-    # 升级贪欲九头蛇 (2140) + 钢化你心 (1152)
+    # 升级贪欲九头蛇 (2140) + 钢化你心 (1152)：堆血线性叠加，耦合 0.4 → 2.5×0.4
     eval_res3 = synergy.evaluate_combo_synergies("2140", ["1152"])
-    assert eval_res3["bonus"] >= 5.0
+    assert eval_res3["bonus"] == 1.0
     assert any("巨人体魄顺劈狂澜" in r for r in eval_res3["reasons"])
 
 def test_blitzcrank_archmage_synergy():
@@ -349,34 +350,35 @@ def test_sylas_sniper_mage_synergy():
     assert "3031" in item_ids  # 无尽
 
 def test_combos_26_to_31_evaluation():
-    # 26. 叠角龙 (1204) + 钢化你心 (1152)
+    # 联动分为机制推导值（类型 × 耦合度），断言即算分公式的预期
+    # 26. 叠角龙 (1204) + 钢化你心 (1152)：堆血线性叠加满耦合 1.0 → 2.5
     res26 = synergy.evaluate_combo_synergies("1204", ["1152"])
-    assert res26["bonus"] >= 7.0
+    assert res26["bonus"] == 2.5
     assert any("叠角狂澜八倍叠钢" in r for r in res26["reasons"])
 
-    # 27. 超凡邪恶 (1390) + 尤里卡 (1030)
+    # 27. 超凡邪恶 (1390) + 尤里卡 (1030)：法强/急速资源转化满耦合 → 5.0
     res27 = synergy.evaluate_combo_synergies("1390", ["1030"])
-    assert res27["bonus"] >= 8.0
+    assert res27["bonus"] == 5.0
     assert any("邪恶尤里卡法神永动" in r for r in res27["reasons"])
 
-    # 28. 双发快射 (2010) + 秘术冲拳 (1058)
+    # 28. 双发快射 (2010) + 秘术冲拳 (1058)：频次满耦合 → 5.5
     res28 = synergy.evaluate_combo_synergies("2010", ["1058"])
-    assert res28["bonus"] >= 7.0
+    assert res28["bonus"] == 5.5
     assert any("双发冲拳极速刷招" in r for r in res28["reasons"])
 
-    # 29. 踢踏舞 (1081) + 全凭身法 (1019)
+    # 29. 踢踏舞 (1081) + 全凭身法 (1019)：频次满耦合 → 5.5
     res29 = synergy.evaluate_combo_synergies("1081", ["1019"])
-    assert res29["bonus"] >= 7.0
+    assert res29["bonus"] == 5.5
     assert any("踢踏身法万速天帝" in r for r in res29["reasons"])
 
-    # 30. 地形专家 (2129) + 面包和奶酪 (1151)
+    # 30. 地形专家 (2129) + 面包和奶酪 (1151)：资源转化，耦合 0.8 → 4.0
     res30 = synergy.evaluate_combo_synergies("2129", ["1151"])
-    assert res30["bonus"] >= 6.0
+    assert res30["bonus"] == 4.0
     assert any("地形封路无限领域" in r for r in res30["reasons"])
 
-    # 31. 高压锅 (2102) + 巨像的勇气 (1018)
+    # 31. 高压锅 (2102) + 巨像的勇气 (1018)：堆血线性叠加 → 2.5
     res31 = synergy.evaluate_combo_synergies("2102", ["1018"])
-    assert res31["bonus"] >= 6.0
+    assert res31["bonus"] == 2.5
     assert any("高压巨像全域熔炉" in r for r in res31["reasons"])
 
 

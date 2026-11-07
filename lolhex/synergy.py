@@ -22,7 +22,9 @@ HERO_ARCHETYPE_MAP = {
     '89': 'Tank_Frontline', '57': 'Tank_Frontline', '223': 'Tank_Frontline', '497': 'Tank_Frontline',
     '876': 'Tank_Frontline', '154': 'Tank_Frontline', '106': 'Tank_Frontline', '201': 'Tank_Frontline',
     '44': 'Tank_Frontline', '516': 'Tank_Frontline', '3': 'Tank_Frontline', '27': 'Tank_Frontline',
-    '72': 'Tank_Frontline',
+    '72': 'Tank_Frontline', '20': 'Tank_Frontline', '36': 'Tank_Frontline', '53': 'Tank_Frontline',
+    '98': 'Tank_Frontline', '113': 'Tank_Frontline', '412': 'Tank_Frontline', '526': 'Tank_Frontline',
+    '897': 'Tank_Frontline',
 
     # AD 远距离 Poke / 技能穿甲流
     '81': 'AD_Spellcaster_Poke', '42': 'AD_Spellcaster_Poke', '126': 'AD_Spellcaster_Poke',
@@ -31,14 +33,15 @@ HERO_ARCHETYPE_MAP = {
     # 混合攻击特效 / 攻速流
     '145': 'ADC_Hybrid_OnHit', '96': 'ADC_Hybrid_OnHit', '110': 'ADC_Hybrid_OnHit',
     '67': 'ADC_Hybrid_OnHit', '429': 'ADC_Hybrid_OnHit', '10': 'ADC_Hybrid_OnHit',
-    '4': 'ADC_Hybrid_OnHit',
+    '4': 'ADC_Hybrid_OnHit', '200': 'ADC_Hybrid_OnHit',
 
     # 经典暴击 ADC
     '22': 'ADC_Crit', '51': 'ADC_Crit', '222': 'ADC_Crit', '18': 'ADC_Crit',
     '236': 'ADC_Crit', '202': 'ADC_Crit', '119': 'ADC_Crit', '15': 'ADC_Crit',
     '29': 'ADC_Crit', '498': 'ADC_Crit', '523': 'ADC_Crit', '360': 'ADC_Crit',
     '221': 'ADC_Crit', '895': 'ADC_Crit', '166': 'ADC_Crit', '133': 'ADC_Crit',
-    '104': 'ADC_Crit', '203': 'ADC_Crit',
+    '104': 'ADC_Crit', '203': 'ADC_Crit', '23': 'ADC_Crit', '235': 'ADC_Crit',
+    '804': 'ADC_Crit',
 
     # AP 爆发秒人 / 远距离法系
     '17': 'AP_Burst_Poke', '21': 'AP_Burst_Poke', '99': 'AP_Burst_Poke', '115': 'AP_Burst_Poke',
@@ -52,6 +55,12 @@ HERO_ARCHETYPE_MAP = {
     '1': 'AP_Burst_Poke', '43': 'AP_Burst_Poke', '117': 'AP_Burst_Poke', '902': 'AP_Burst_Poke',
     '267': 'AP_Burst_Poke', '350': 'AP_Burst_Poke', '40': 'AP_Burst_Poke', '26': 'AP_Burst_Poke',
     '427': 'AP_Burst_Poke', '432': 'AP_Burst_Poke', '9': 'AP_Burst_Poke', '893': 'AP_Burst_Poke',
+    '28': 'AP_Burst_Poke', '38': 'AP_Burst_Poke', '60': 'AP_Burst_Poke', '76': 'AP_Burst_Poke',
+    '79': 'AP_Burst_Poke', '84': 'AP_Burst_Poke', '85': 'AP_Burst_Poke', '105': 'AP_Burst_Poke',
+    '131': 'AP_Burst_Poke', '800': 'AP_Burst_Poke', '805': 'AP_Burst_Poke',
+
+    # AP 持续灼烧 / 技能急速流
+    '68': 'AP_Burn_Haste', '143': 'AP_Burn_Haste', '517': 'AP_Burn_Haste', '888': 'AP_Burn_Haste',
 
     # 战士重装 / 吸血持续作战
     '266': 'Bruiser_Drain', '122': 'Bruiser_Drain', '86': 'Bruiser_Drain', '875': 'Bruiser_Drain',
@@ -61,13 +70,15 @@ HERO_ARCHETYPE_MAP = {
     '240': 'Bruiser_Drain', '2': 'Bruiser_Drain', '80': 'Bruiser_Drain', '48': 'Bruiser_Drain',
     '77': 'Bruiser_Drain', '6': 'Bruiser_Drain', '19': 'Bruiser_Drain', '62': 'Bruiser_Drain',
     '5': 'Bruiser_Drain', '83': 'Bruiser_Drain', '233': 'Bruiser_Drain', '799': 'Bruiser_Drain',
-    '254': 'Bruiser_Drain', '213': 'Bruiser_Drain', '102': 'Bruiser_Drain', '120': 'Bruiser_Drain',
-    '11': 'Bruiser_Drain',
+    '254': 'Bruiser_Drain', '102': 'Bruiser_Drain', '120': 'Bruiser_Drain', '11': 'Bruiser_Drain',
+    '59': 'Bruiser_Drain', '64': 'Bruiser_Drain', '141': 'Bruiser_Drain', '150': 'Bruiser_Drain',
+    '234': 'Bruiser_Drain', '421': 'Bruiser_Drain', '904': 'Bruiser_Drain',
 
     # 物理刺客爆发
     '238': 'Assassin_Lethality', '91': 'Assassin_Lethality', '55': 'Assassin_Lethality',
     '121': 'Assassin_Lethality', '107': 'Assassin_Lethality', '245': 'Assassin_Lethality',
-    '35': 'Assassin_Lethality', '246': 'Assassin_Lethality', '7': 'Assassin_Lethality'
+    '35': 'Assassin_Lethality', '246': 'Assassin_Lethality', '7': 'Assassin_Lethality',
+    '56': 'Assassin_Lethality', '555': 'Assassin_Lethality', '950': 'Assassin_Lethality'
 }
 
 # ==========================================
@@ -1201,36 +1212,28 @@ def classify_augment_tier(store: Any, hero_id: str | None, augment_id: str | Non
     """
     双轨制决策分类器：
     返回徽章标签（badge）、图标（icon）与简明建议（label）。
-    结合 4.0 绝活海克斯库与官方大数据置信度。
+
+    徽章只由实测数据（Lift + 样本量）决定；静态绝活表（AUGMENT_META_EXPLANATIONS /
+    AUGMENT_PIVOT_ANCHORS）只提供机制解读文案。没有数据支撑的「核心」徽章会和按数据
+    算出的 verdict（如「建议刷新」）在浮窗上自相矛盾，所以这里不再给静态表直通核心。
     """
     aid_str = str(augment_id or "")
+    expl = AUGMENT_META_EXPLANATIONS.get(aid_str)
+    g = games or 0
 
-    # 1. 4.0 顶级质变核心符文
-    if aid_str in AUGMENT_META_EXPLANATIONS:
-        expl = AUGMENT_META_EXPLANATIONS[aid_str]
+    # 1. 大样本高 Lift（Delta ≥ +2.5pp 且样本充足）：核心徽章必须有实测数据支撑
+    if score is not None and score >= 2.5 and g >= 400:
+        if expl:
+            summary = f"4.0质变核心：{expl}"
+        else:
+            summary = f"流派核心符文，相对该英雄基准提升 {score:+.1f}pp"
         return {
             "badge": "🌟 核心",
             "tag": "core",
-            "summary": f"4.0质变核心：{expl}"
+            "summary": summary
         }
 
-    # 2. 质变海克斯锚点
-    if aid_str in AUGMENT_PIVOT_ANCHORS:
-        return {
-            "badge": "🌟 核心",
-            "tag": "core",
-            "summary": "质变核心符文，改变打法并提供极高胜率上限"
-        }
-
-    # 3. 大样本极高 Lift (Delta > +2.5pp)
-    if score is not None and score >= 2.5 and (games or 0) >= 400:
-        return {
-            "badge": "🌟 核心",
-            "tag": "core",
-            "summary": f"流派核心符文，相对该英雄基准提升 {score:+.1f}pp"
-        }
-
-    # 4. 泛用万金油 (稳妥)
+    # 2. 泛用万金油 (稳妥)
     if (win_rate is not None and win_rate >= 0.518) and (score is None or score >= -0.2):
         return {
             "badge": "🛡️ 稳妥",
@@ -1238,15 +1241,15 @@ def classify_augment_tier(store: Any, hero_id: str | None, augment_id: str | Non
             "summary": "泛用万金油符文，容错率高、发挥稳定"
         }
 
-    # 5. 陷阱提示 (负 Lift 且胜率低)
-    if score is not None and score <= -1.8 and (games or 0) >= 300:
+    # 3. 陷阱提示 (负 Lift 且胜率低)
+    if score is not None and score <= -1.8 and g >= 300:
         return {
             "badge": "⚠️ 陷阱",
             "tag": "trap",
             "summary": f"版本陷阱！相比该英雄基准降低 {abs(score):.1f}pp，建议刷新"
         }
 
-    # 6. 低于基准期望，建议刷新
+    # 4. 低于基准期望，建议刷新
     if score is not None and score < -0.5:
         return {
             "badge": "🎲 慎选",
@@ -1254,15 +1257,19 @@ def classify_augment_tier(store: Any, hero_id: str | None, augment_id: str | Non
             "summary": "低于基准期望，可优先考虑掷骰刷新"
         }
 
+    # 5. 兜底：有机制解读的照常展示（含没有数据的新符文），但徽章不越级抬成核心
     return {
         "badge": "✨ 可选",
         "tag": "normal",
-        "summary": "契合常规对局，正常可选"
+        "summary": expl or "契合常规对局，正常可选"
     }
 
 
 # ==========================================
 # 5. 局内双符文/多符文联动协同矩阵 (Combo Synergy Matrix)
+#    每条只维护「有什么交互」：名称、机制描述、必出装备。
+#    「加多少分」由 fit.computed_combo_bonus 按 交互类型(COMBO_TYPES) × 机制耦合度 推导，
+#    各条里的 bonus 字段是旧版攻略视频拍的手工值，仅留档，不再参与计算。
 # ==========================================
 AUGMENT_COMBOS: list[dict[str, Any]] = [
     # 1. 珠光护手 + 易损 (天命双法爆)
@@ -1643,6 +1650,43 @@ AUGMENT_COMBOS: list[dict[str, Any]] = [
     }
 ]
 
+# 组合交互类型（算分用，见 fit.computed_combo_bonus）：手工表只维护「有什么交互」，
+# 「加多少分」由交互类型 × 机制耦合度推导，不再用攻略视频拍的手工数值。
+COMBO_TYPES: dict[frozenset, str] = {
+    frozenset({"1048", "1092"}): "multiplicative",  # 珠光护手×易损：技能暴击×全技能暴击乘算
+    frozenset({"3123", "1092"}): "multiplicative",
+    frozenset({"1048", "3123"}): "multiplicative",
+    frozenset({"1048", "3018"}): "multiplicative",  # 大腕爆伤×技能暴击
+    frozenset({"3086", "1225"}): "frequency",       # 小蜜蜂×双刀流：触发×频率
+    frozenset({"3086", "1058"}): "frequency",
+    frozenset({"1225", "1058"}): "frequency",
+    frozenset({"3049", "1018"}): "additive",        # 装甲冲击×巨像：同套坦装堆叠
+    frozenset({"3049", "1149"}): "resource",        # 不动如山供双抗，装甲冲击转伤害
+    frozenset({"1018", "1041"}): "additive",        # 双巨人堆血
+    frozenset({"1018", "1152"}): "additive",
+    frozenset({"3051", "1030"}): "resource",        # 尤里卡法强转急速→多放技能→多耗蓝→盾
+    frozenset({"3051", "1056"}): "resource",        # 法力互转双壁垒
+    frozenset({"1088", "3118"}): "resource",        # 大招冷却循环
+    frozenset({"1088", "3078"}): "frequency",       # 刷新给更多施法，低音轰鸣吃施法频次
+    frozenset({"1001", "1390"}): "additive",        # 都叠法强/双抗
+    frozenset({"3018", "1115"}): "multiplicative",  # 射程保输出环境×爆伤
+    frozenset({"3018", "1071"}): "multiplicative",
+    frozenset({"1058", "3078"}): "frequency",       # 冲拳攻速刷CD×施法加速
+    frozenset({"1015", "1092"}): "multiplicative",  # 死亡之环持续伤害吃易损暴击
+    frozenset({"3086", "1029"}): "frequency",       # 小蜜蜂×虚幻武器：特效互触
+    frozenset({"1015", "1133"}): "frequency",       # 环伤不断触发飞弹
+    frozenset({"2140", "1152"}): "additive",        # 堆血
+    frozenset({"3051", "3118"}): "resource",        # 蓝量→盾，大招循环
+    frozenset({"2078", "1048"}): "multiplicative",  # 连锁爆炸吃法爆
+    frozenset({"3081", "1029"}): "multiplicative",  # 命运武器放大首件装备×特效
+    frozenset({"1204", "1152"}): "additive",        # 叠钢堆血
+    frozenset({"1390", "1030"}): "resource",        # 超凡叠法强，尤里卡法强转急速
+    frozenset({"2010", "1058"}): "frequency",       # 双发×冲拳：双倍触发
+    frozenset({"1081", "1019"}): "frequency",       # 移速攻速闭环互转
+    frozenset({"2129", "1151"}): "resource",        # 地形急速×技能急速
+    frozenset({"2102", "1018"}): "additive",        # 堆血
+}
+
 AUGMENT_CONFLICTS: list[dict[str, Any]] = [
     {
         "pair": {"3018", "1225"},
@@ -1662,37 +1706,53 @@ AUGMENT_CONFLICTS: list[dict[str, Any]] = [
 ]
 
 
+# 联动加分递减与封顶：单组按表值，第二组起按 30% 计入，总量不超过单组最大值。
+# 手工组合分只是机制先验，不能无限叠盖过实测胜率差（实测 Δ 通常只有 ±3pp）。
+COMBO_BONUS_CAP = 8.0
+COMBO_STACK_DECAY = 0.3
+
+
 def evaluate_combo_synergies(candidate_aid: str, acquired_aids: list[str]) -> dict[str, Any]:
     """
     计算当前候选海克斯 candidate_aid 与局内已选海克斯 acquired_aids 的多符文联动协同与冲突：
     返回:
-    - bonus: float (联动总加分)
+    - bonus: float (联动总加分，机制推导值递减叠加并封顶，见 COMBO_BONUS_CAP / COMBO_STACK_DECAY)
     - penalty: float (冲突扣分)
     - net_score: float (净增减分)
     - reasons: list[str] (联动理由)
     - conflicts: list[str] (冲突警告)
     - core_items: list[dict] (推荐必出装备)
+
+    加多少分由 fit.computed_combo_bonus 推导（交互类型 × 机制耦合度），不再用攻略视频拍的手工值；
+    表里没有的组合按共享机制推算（标注「推算」、封顶 GENERIC_CAP）。
     """
+    from . import fit as fit_mod
+
     if not candidate_aid or not acquired_aids:
         return {"bonus": 0.0, "penalty": 0.0, "net_score": 0.0, "reasons": [], "conflicts": [], "core_items": []}
 
     cand = str(candidate_aid)
     acq_set = {str(a) for a in acquired_aids if a and str(a) != cand}
 
-    bonus = 0.0
+    bonuses: list[float] = []
     penalty = 0.0
     reasons = []
     conflicts = []
     core_items = []
     seen_item_ids = set()
+    curated_partners: set[str] = set()
 
     for combo in AUGMENT_COMBOS:
         pair = combo["pair"]
         if cand in pair:
             other = (pair - {cand}).pop()
             if other in acq_set:
-                bonus += combo["bonus"]
-                reasons.append(f"★ 组合联动【{combo['name']}】：{combo['desc']}")
+                curated_partners.add(other)
+                calc = fit_mod.computed_combo_bonus(cand, other, itype=COMBO_TYPES.get(frozenset(pair)), curated=True)
+                bonuses.append(calc["bonus"])
+                type_cn = fit_mod.INTERACTION_CN[calc["type"]]
+                shared = f"（共享：{'、'.join(calc['shared'])}）" if calc["shared"] else "（机制模型外，人工确认）"
+                reasons.append(f"★ 组合联动【{combo['name']}】· {type_cn}算分 {calc['bonus']:+.1f}pp{shared}：{combo['desc']}")
                 for it in combo.get("core_items", []):
                     if it["id"] not in seen_item_ids:
                         seen_item_ids.add(it["id"])
@@ -1703,8 +1763,23 @@ def evaluate_combo_synergies(candidate_aid: str, acquired_aids: list[str]) -> di
         if cand in pair:
             other = (pair - {cand}).pop()
             if other in acq_set:
+                curated_partners.add(other)  # 有冲突的组合不再推算正联动（冲突即结论）
                 penalty += conf["penalty"]
                 conflicts.append(conf["reason"])
+
+    # 表里没有的组合：共享机制够强也推算给分（封顶 GENERIC_CAP，写明是推算不是评审值）
+    for other in sorted(acq_set - curated_partners):
+        calc = fit_mod.computed_combo_bonus(cand, other)
+        if calc["bonus"] > 0:
+            bonuses.append(calc["bonus"])
+            reasons.append(f"◇ 机制联动（推算）· {fit_mod.INTERACTION_CN[calc['type']]} {calc['bonus']:+.1f}pp"
+                           f"（共享：{'、'.join(calc['shared'])}）")
+
+    # 多组联动递减叠加并封顶（见 COMBO_BONUS_CAP / COMBO_STACK_DECAY）
+    bonus = 0.0
+    if bonuses:
+        bonuses.sort(reverse=True)
+        bonus = min(COMBO_BONUS_CAP, bonuses[0] + COMBO_STACK_DECAY * sum(bonuses[1:]))
 
     return {
         "bonus": round(bonus, 2),

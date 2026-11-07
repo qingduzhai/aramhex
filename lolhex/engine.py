@@ -144,6 +144,7 @@ class Engine:
             "offer": None, "evaluation": None,
             "champ_select": None,  # {"bench": [...], "team": [...]}，每项带胜率和排名
             "acquired_augments": [],  # 本局已获得的符文列表 [aid, ...]
+            "_acquired_guess": None,  # 三选一关闭时推测记录的首选 {aid, at}；快速出现新一组（刷新）时撤回
         }
 
     # ---------- 生命周期 ----------
@@ -221,6 +222,9 @@ class Engine:
             if aid_str not in cur:
                 cur.append(aid_str)
                 self.state["acquired_augments"] = cur
+            guess = self.state.get("_acquired_guess")
+            if guess and guess.get("aid") == aid_str:
+                self.state["_acquired_guess"] = None  # 玩家手动确认过，不再当推测记录撤回
         log.info("记录局内已持符文：%s，当前持量：%d", aid_str, len(cur))
         self._reevaluate()
 
@@ -231,6 +235,9 @@ class Engine:
             if 0 <= index < len(cur):
                 removed = cur.pop(index)
                 self.state["acquired_augments"] = cur
+                guess = self.state.get("_acquired_guess")
+                if guess and guess.get("aid") == removed:
+                    self.state["_acquired_guess"] = None
                 log.info("移除局内已持符文：%s", removed)
         self._reevaluate()
 
@@ -238,6 +245,7 @@ class Engine:
         """清空本局已持符文。"""
         with self._lock:
             self.state["acquired_augments"] = []
+            self.state["_acquired_guess"] = None
         log.info("已清空局内已持符文")
         self._reevaluate()
 
@@ -592,7 +600,8 @@ class Engine:
             self._last_eval_log = None
             self._evaluation_revision += 1
             self.state.update(hero_id=None, hero_source=None, hero_candidates=[],
-                              offer=None, evaluation=None, acquired_augments=[])
+                              offer=None, evaluation=None, acquired_augments=[],
+                              _acquired_guess=None)
 
     def _on_game_end(self) -> None:
         self._clear_selection()
@@ -877,6 +886,24 @@ class Engine:
                 self._evaluation_revision += 1  # 在途重算不能把旧可见状态带回来。
                 current["pending_columns"] = masked
 
+    # 三选一关闭时把推荐首选记为「本局已持」只是推测：玩家可能选了别的，也可能是在刷新。
+    # 关闭后这么短时间内又出现新一组三选一，说明刚才那次关闭是刷新动画，撤回推测记录。
+    ACQUIRED_GUESS_WITHDRAW_S = 10.0
+
+    def _withdraw_fresh_guess(self) -> None:
+        """撤回刷新造成的误记（调用方须持有 self._lock）。"""
+        guess = self.state.get("_acquired_guess")
+        if not guess:
+            return
+        self.state["_acquired_guess"] = None
+        if time.monotonic() - guess["at"] > self.ACQUIRED_GUESS_WITHDRAW_S:
+            return  # 隔得够久：玩家已经选完，记录转正
+        cur = list(self.state.get("acquired_augments", []))
+        if guess["aid"] in cur:
+            cur.remove(guess["aid"])
+            self.state["acquired_augments"] = cur
+            log.info("三选一快速重现（判定为刷新），撤回推测的已持记录：%s", guess["aid"])
+
     def _on_offer(self, offer) -> None:
         context = (offer.trace or {}).get("context") if offer is not None else None
         if context and (invalid := self._scan_invalid_reason(context)):
@@ -899,11 +926,13 @@ class Engine:
                         if aid_str not in cur_acq:
                             cur_acq.append(aid_str)
                             self.state["acquired_augments"] = cur_acq
-                            log.info("三选一结束，自动记录推荐首选符文入本局已持：%s (%s)", aid_str, best_slot.get("name"))
+                            self.state["_acquired_guess"] = {"aid": aid_str, "at": time.monotonic()}
+                            log.info("三选一结束，推测记录推荐首选符文入本局已持：%s (%s)", aid_str, best_slot.get("name"))
                 self.state.update(offer=None, evaluation=None)
                 return
             if self.state["phase"] != "ingame" or (context and context[0] != getattr(self, "_scan_epoch", 0)):
                 return  # 这帧识别完成时已经退出对局，不再发布旧卡片。
+            self._withdraw_fresh_guess()  # 上一组刚关又出新的一组：上次关闭是刷新，撤回误记
             if getattr(offer, "group_changed", False):
                 self._evaluation_revision += 1
                 self.state.update(offer=None, evaluation=None)

@@ -2,18 +2,26 @@ from lolhex import recommend
 from lolhex.panel import hero_panel
 
 
-def test_win_rank_uses_win_rate_and_separates_rarity():
-    stats = {"a": {"win": .7, "games": 10, "pick": .01},
+def test_win_rank_uses_smoothed_win_and_min_games():
+    stats = {"a": {"win": .7, "games": 10, "pick": .01},      # 小样本：不参与排名
              "b": {"win": .6, "games": 50000, "pick": .9},
-             "c": {"win": .7, "games": 200}, "d": {"win": 0, "games": 30},
-             "s": {"win": .8, "games": 100}, "missing": {"win": None, "games": 100}}
-    static = {k: {"rarity": "silver" if k == "s" else "prismatic"} for k in stats}
-    ranked = recommend.win_ranks(stats, static)
-    assert ranked["a"]["rank"] == ranked["c"]["rank"] == 1
-    assert ranked["b"]["rank"] == 3 and ranked["d"]["rank"] == 4
-    assert ranked["a"]["rank_total"] == 4
-    assert ranked["s"]["rank"] == ranked["s"]["rank_total"] == 1
-    assert "missing" not in ranked
+             "c": {"win": .7, "games": 200},                  # 小样本：不参与排名
+             "d": {"win": 0, "games": 30},                    # 小样本：不参与排名
+             "e": {"win": .7, "games": 300},
+             "f": {"win": .58, "games": 3000},
+             "s": {"win": .8, "games": 100},                  # 小样本：不参与排名
+             "s2": {"win": .6, "games": 400},
+             "missing": {"win": None, "games": 100}}
+    static = {k: {"rarity": "silver" if k.startswith("s") else "prismatic"} for k in stats}
+    ranked = recommend.win_ranks(stats, static, base=0.53, k=300)
+    # 局数 < RANK_MIN_GAMES 不参与排名：3 局 100% 不能排第一
+    for aid in ("a", "c", "d", "s", "missing"):
+        assert aid not in ranked
+    # 按平滑胜率（和打分同一把尺）：e(0.7×300局) ≈ 0.615 > b(0.6×5万局) ≈ 0.5996 > f(0.58×3000局)
+    assert ranked["e"]["rank"] == 1 and ranked["b"]["rank"] == 2 and ranked["f"]["rank"] == 3
+    assert ranked["e"]["rank_total"] == 3
+    # 稀有度分开排
+    assert ranked["s2"]["rank"] == ranked["s2"]["rank_total"] == 1
 
 
 def test_smoothing_pulls_small_samples_to_baseline():
@@ -41,7 +49,7 @@ def test_unknown_slot_and_rare_augment(store):
     store.ranks["augments"]["1001"] = {"win": 0.5, "games": 5000}  # 别的英雄拿过，这个英雄几乎不选
     ev = recommend.evaluate(store, "17", ["1029", None, "1001"])
     assert ev["slots"][1]["verdict"] == "unknown" and ev["slots"][1]["score"] is None
-    assert ev["slots"][2]["basis"] in ("rare", "tier_only")
+    assert ev["slots"][2]["basis"] in ("global_fit", "tier_only")
     assert ev["best_index"] == 0
 
 

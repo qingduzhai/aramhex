@@ -8,11 +8,18 @@
 分数 = 相对该英雄基准胜率的Δ胜率（百分点）：
 1. 贝叶斯平滑：smoothed = (胜率×场次 + 基准×k) / (场次 + k)，k 默认 300，小样本的高胜率会被拉回基准附近。
 2. Δ = smoothed − 该英雄基准胜率。
-3. 样本分档：<250 局仅参考、250–999 中等、≥1000 充足，显示在界面上。
-4. 首选只在样本充足（≥1000 局）的海克斯里挑：冷门海克斯偶尔胜率高，多半是局数少碰巧打出来的。
+3. 机制契合先验（fit.py）：符文×英雄流派的机制匹配分（封顶 ±1.5pp），按 k/(局数+k) 淡出——
+   等价于把平滑基准换成「基准+先验」。英雄×符文胜率本身已包含英雄适配度，所以先验只在
+   样本不足时起作用，样本一大自动失效，不会重复计算。
+4. 样本分档：<250 局仅参考、250–999 中等、≥1000 充足，显示在界面上。
+5. 首选只在样本充足（≥1000 局）的海克斯里挑：冷门海克斯偶尔胜率高，多半是局数少碰巧打出来的。
    比同屏其他海克斯少一个数量级以上（<1/10）的，标"样本太少"并提示刷新，不管胜率多高；
    只是不足 1000 局的，不当首选、标"样本偏少"。三张都不足时仍正常比较，但明确仅供参考。
 选取率只展示，不进分数：常拿不代表强。
+「几乎不选」（本英雄零数据）的兜底：机制先验 + 全服Δ按 50% 折算，只减分不加分，下限 -3.0，
+取代以前的固定 -3.0——全服强但本英雄没人拿，可能是卡池权重或待开发打法，不该一棍子打死。
+局内联动（synergy.py）：组合加分按候选符文与本英雄的机制契合度折算（fit.combo_gate），
+多组联动递减叠加并封顶；「无数据」的海克斯只展示联动、不参与打分。
 选了分段时：「这个海克斯比英雄平均高多少」按分段局数把分段和全体综合，
 Δ = w·Δ分段 + (1−w)·Δ全体，w = 分段局数 / (分段局数 + K)，K 由数据自己估（public._band_shrink）。
 分段对英雄强弱影响大，对同一英雄几个海克斯谁好影响小得多（16.20：前 5% 和娱乐局比，海克斯优势真实差别约 1 个点），
@@ -26,6 +33,7 @@
 
 from __future__ import annotations
 
+from . import fit as fit_mod
 from .data.tencent import RARITY_CN
 
 TIER_PP = {"S": 1.5, "A": 0.5, "B": -0.5, "C": -1.5, "D": -2.5}
@@ -109,14 +117,33 @@ def smoothed_delta(win: float | None, games: int | None, base: float | None, k: 
     return (s - base) * 100
 
 
-def win_ranks(augments: dict, static: dict) -> dict:
-    """本英雄同稀有度里按原始胜率排名；胜率相同名次相同。"""
+def apply_fit(d: float | None, games: int | None, fit_adj: float, k: int) -> float | None:
+    """机制契合先验按 k/(局数+k) 淡出：等价于把平滑基准换成「基准+fit」。panel 与 evaluate 共用。"""
+    if d is None or not fit_adj or not games:
+        return d
+    return d + fit_adj * k / (games + k)
+
+
+def fit_reason(fit_adj: float, note: str, games: int | None, k: int) -> str:
+    effect = fit_adj * k / (games + k) if games else fit_adj
+    return f"{note}，先验 {effect:+.2f}pp（随局数淡出）"
+
+
+RANK_MIN_GAMES = 250  # 与样本分档的 low 对齐：局数不到这个数不参与胜率排名，名次基本是噪声
+
+
+def win_ranks(augments: dict, static: dict, base: float | None = None, k: int = 300) -> dict:
+    """本英雄同稀有度里按平滑胜率排名（和打分同一把尺）；胜率相同名次相同。
+    局数 < RANK_MIN_GAMES 不参与排名：3 局 100% 不能排第一；没排名的卡退回官方层级展示。"""
     groups = {}
     for aid, stats in augments.items():
         win = stats.get("win")
         rarity = (static.get(aid) or {}).get("rarity")
-        if rarity and type(win) in (int, float) and 0 <= win <= 1 and stats.get("games", 0) > 0:
-            groups.setdefault(rarity, []).append((aid, win))
+        games = stats.get("games", 0) or 0
+        if not rarity or type(win) not in (int, float) or not 0 <= win <= 1 or games < RANK_MIN_GAMES:
+            continue
+        s = (win * games + base * k) / (games + k) if base is not None else win
+        groups.setdefault(rarity, []).append((aid, s))
     ranks = {}
     for rows in groups.values():
         rows.sort(key=lambda row: (-row[1], row[0]))
@@ -186,13 +213,13 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
     # 排名只在正式服统计的海克斯之间排：测试服的新海克斯不是同一个版本的数据，只显示测试服胜率、不排名；
     # 剔除的不参与。4.0 删掉的海克斯过渡数据里已经去掉，名次的分母跟着变
     blend = band_blend(store, hero_id, ag, k)
-    rank_src = ({aid: {"win": (ag["sample_win"] + v["delta"] / 100), "games": v["games_all"]} for aid, v in blend.items()}
-                if blend is not None else ag_augs)
-    ranks_by_win = win_ranks({aid: s for aid, s in rank_src.items() if aid not in provisional and aid not in excluded},
-                             store.augments)
     base = (ag or {}).get("sample_win")
     if base is None and hero_id:
         base = ((store.ranks.get("heroes") or {}).get(str(hero_id)) or {}).get("win")
+    rank_src = ({aid: {"win": (ag["sample_win"] + v["delta"] / 100), "games": v["games_all"]} for aid, v in blend.items()}
+                if blend is not None else ag_augs)
+    ranks_by_win = win_ranks({aid: s for aid, s in rank_src.items() if aid not in provisional and aid not in excluded},
+                             store.augments, base=base, k=k)
     official = {a["id"]: a for a in (hero or {}).get("augments", [])}
     rarity_total: dict[str, int] = {}
     for a in official.values():
@@ -240,23 +267,32 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
                 r["reasons"].append(f"官方{RARITY_CN.get(rarity, '')}第{t['rank']}/{rarity_total.get(rarity, '?')}"
                                     f"（{t['tier']}级）")
 
+            # 机制契合先验（fit.py）：只在数据不足时影响分数，随局数淡出
+            fit_adj, fit_note = fit_mod.fit_adjustment(aid, hero_id)
+            if fit_adj:
+                r["fit"] = fit_adj
+
             # 1) 本英雄胜率（选了分段：分段和全体按局数综合）
             a = ag_augs.get(aid)
             bl = (blend or {}).get(aid)
             if bl and base is not None:
-                d = bl["delta"]
+                d = apply_fit(bl["delta"], bl["games_all"], fit_adj, k)
                 r.update(win=bl["win"], games=bl["games"], games_all=bl["games_all"], win_all=bl["win_all"],
                          sample=sample_level(bl["games_all"]), source="public", band_weight=round(bl["weight"], 3))
                 band_part = (f"{label} {bl['games']}局胜率 {bl['win'] * 100:.1f}%" if bl["games"] else f"{label}没有局")
                 r["reasons"].append(f"{band_part}；全体 {bl['games_all']}局胜率 {bl['win_all'] * 100:.1f}%；"
                                     f"按局数综合较英雄基准 {d:+.1f}pp")
+                if fit_adj:
+                    r["reasons"].append(fit_reason(fit_adj, fit_note, bl["games_all"], k))
                 r["score"] = round(d, 2)
                 r["basis"] = "hero_win"
             elif a and a.get("win") is not None and a.get("games") and base is not None:
-                d = smoothed_delta(a["win"], a["games"], base, k)
+                d = apply_fit(smoothed_delta(a["win"], a["games"], base, k), a["games"], fit_adj, k)
                 r.update(win=a["win"], games=a["games"], sample=sample_level(a["games"]), source="public")
                 r["reasons"].append(f"本英雄胜率 {a['win'] * 100:.1f}%（{a['games']}局，{SAMPLE_CN[r['sample']]}，"
                                     f"{label}），平滑后较英雄基准 {d:+.1f}pp")
+                if fit_adj:
+                    r["reasons"].append(fit_reason(fit_adj, fit_note, a["games"], k))
                 r["score"] = round(d, 2)
                 r["basis"] = "hero_win"
             # 2) 未识别英雄：所有英雄合计的胜率
@@ -278,32 +314,50 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
                 r["reasons"].append(NEW_NOTE)
             elif r["score"] is None:
                 if hero_id and (official or ag):
-                    r["score"] = -3.0
-                    r["basis"] = "rare"
-                    r["reasons"].append("该英雄几乎不选，数据不足")
+                    # 「几乎不选」：本英雄零数据。用机制先验 + 全服Δ折算代替固定 -3.0——
+                    # 全服强但本英雄没人拿，可能是卡池权重或待开发打法；只减分不加分。
+                    g = global_augs.get(aid)
+                    gpart = (min(0.0, 0.5 * (g["win"] - global_mean) * 100)
+                             if g and g.get("win") and global_mean else 0.0)
+                    r["score"] = round(max(-3.0, min(-0.2, fit_adj + gpart)), 2)
+                    r["basis"] = "global_fit"
+                    parts = [fit_note] if fit_note else []
+                    if g and g.get("win") and global_mean:
+                        parts.append(f"全英雄较平均 {(g['win'] - global_mean) * 100:+.1f}pp 折算 {gpart:+.1f}pp")
+                    r["reasons"].append("该英雄几乎不选" + ("：" + "，".join(parts) if parts else "，数据不足"))
                 else:
                     r["reasons"].append("暂无可靠数据")
 
-        # 局内多符文联动协同与冲突加权
+        # 局内多符文联动协同与冲突加权：按候选符文与本英雄的机制契合度折算
         if aid and acquired_list:
             from . import synergy
             combo_eval = synergy.evaluate_combo_synergies(aid, acquired_list)
+            gate = fit_mod.combo_gate(aid, hero_id)
+            combo_eval["gate"] = round(gate, 3)
+            combo_eval["applied_score"] = round(combo_eval["net_score"] * gate, 2)
             r["combo_synergy"] = combo_eval
-            if combo_eval["net_score"] != 0:
-                if r["score"] is not None:
-                    r["score_before_synergy"] = r["score"]
-                    r["score"] = round(r["score"] + combo_eval["net_score"], 2)
-                elif combo_eval["bonus"] > 0:
-                    r["score_before_synergy"] = 0.0
-                    r["score"] = round(combo_eval["net_score"], 2)
-                    r["basis"] = "synergy"
-                    r["verdict"] = "ok"
+            net = combo_eval["applied_score"]
+            gate_note = f"（机制契合折算 ×{gate:.0%}）" if gate < 0.999 else ""
+            # 「无数据」的海克斯（新上线 / 被剔除）不参与联动打分：零数据的卡不能靠手工组合表
+            # 当上首选；联动信息仍写进理由，但明确不计分。
+            scoreable = r.get("verdict") != "nodata"
+            if net != 0:
+                if scoreable:
+                    if r["score"] is not None:
+                        r["score_before_synergy"] = r["score"]
+                        r["score"] = round(r["score"] + net, 2)
+                    elif net > 0:
+                        r["score_before_synergy"] = 0.0
+                        r["score"] = round(net, 2)
+                        r["basis"] = "synergy"
+                        r["verdict"] = "ok"
+                note = "" if scoreable else "（无数据，不计分）"
                 if combo_eval["bonus"] > 0:
-                    r["reasons"].append(f"局内符文联动加成 {combo_eval['bonus']:+.1f}pp")
+                    r["reasons"].append(f"局内符文联动加成 {combo_eval['bonus'] * gate:+.1f}pp{gate_note}{note}")
                     for reas in combo_eval["reasons"]:
                         r["reasons"].append(reas)
                 if combo_eval["penalty"] < 0:
-                    r["reasons"].append(f"局内符文机制冲突扣除 {combo_eval['penalty']:.1f}pp")
+                    r["reasons"].append(f"局内符文机制冲突扣除 {combo_eval['penalty'] * gate:.1f}pp{gate_note}{note}")
                     for conf in combo_eval["conflicts"]:
                         r["reasons"].append(conf)
             elif combo_eval["reasons"]:
@@ -355,7 +409,10 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
         if g < RELIABLE_GAMES and r.get("thin") != "too_few":
             r["reasons"].append(f"只有 {g} 局，样本偏少，胜率偶然性大，仅供参考")
 
-    pool = [r for r in scored if not r.get("thin")] or scored
+    # 首选池：先排除薄样本；「几乎不选」（global_fit，本英雄零数据）的卡只作兜底，
+    # 有实测数据的候选在，零数据的折算分再好也不当首选
+    pool = [r for r in scored if not r.get("thin") and r.get("basis") != "global_fit"]
+    pool = pool or [r for r in scored if not r.get("thin")] or scored
     best = max(pool, key=lambda r: r["score"]) if pool else None
     passed = [r for r in scored if r is not best and r.get("thin") and best is not None and r["score"] > best["score"]]
     for r in scored:
@@ -363,9 +420,9 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
             r["verdict"] = "best"
         elif r.get("thin") == "too_few":
             r["verdict"] = "reroll"
-        elif r.get("thin"):
-            r["verdict"] = "ok"
         elif r["score"] < REROLL_BELOW or r["score"] <= best["score"] - REROLL_GAP:
+            # 「样本偏少」只影响首选资格，不影响好坏判断：分数差的薄样本卡照样标刷新，
+            # 不能因为是 thin 就一律显示「可选」。
             r["verdict"] = "reroll"
         else:
             r["verdict"] = "ok"
@@ -374,7 +431,10 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
         aid = r.get("augment_id")
         if aid and hero_id:
             from . import synergy
-            d_tier = synergy.classify_augment_tier(store, hero_id, aid, r.get("win"), r.get("score"), r.get("games"))
+            # 徽章看符文自身强度：用联动加权前的分数；样本口径与主流程一致，用全体局数
+            badge_score = r.get("score_before_synergy", r.get("score"))
+            badge_games = r.get("games_all") or r.get("games")
+            d_tier = synergy.classify_augment_tier(store, hero_id, aid, r.get("win"), badge_score, badge_games)
             r["decision_badge"] = d_tier["badge"]
             r["decision_tag"] = d_tier["tag"]
             r["decision_summary"] = d_tier["summary"]

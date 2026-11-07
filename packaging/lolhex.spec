@@ -46,7 +46,7 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=["lolhex.ui.overlay", "lolhex.vision.detector", "lolhex.vision.capture", "lolhex.vision.ocr",
-                   "lolhex.ui.mainwindow", "lolhex.ui.autostart", "lolhex.synergy",
+                   "lolhex.ui.mainwindow", "lolhex.ui.autostart", "lolhex.synergy", "lolhex.fit",
                    "PySide6.QtNetwork"],
     excludes=["tkinter", "matplotlib", "IPython", "pytest"],
     noarchive=False,

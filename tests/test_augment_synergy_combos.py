@@ -6,12 +6,14 @@ from lolhex.config import Settings
 
 
 def test_evaluate_combo_synergies_bonus_and_items():
-    # 珠光护手 (1048) + 易损 (1092) -> 天命双法爆 (+7.5 bonus)
+    # 珠光护手 (1048) + 易损 (1092) -> 天命双法爆
+    # 算分：乘算 6.0 × 满耦合（共享 暴击爆发/法强 min 权重和 1.5，截断到 1.0）= +6.0
     res = synergy.evaluate_combo_synergies("1092", ["1048"])
-    assert res["bonus"] == 7.5
+    assert res["bonus"] == 6.0
     assert res["penalty"] == 0.0
-    assert res["net_score"] == 7.5
+    assert res["net_score"] == 6.0
     assert any("天命双法爆" in r for r in res["reasons"])
+    assert any("乘算" in r for r in res["reasons"])
     assert any(it["name"] == "无尽之刃" for it in res["core_items"])
     assert any(it["name"] == "影焰" for it in res["core_items"])
 
@@ -40,38 +42,51 @@ def test_get_augment_core_items_and_build_advice():
 def test_recommend_evaluate_with_acquired_augments_nodata_augmented(store):
     # Candidate slots: 易损 (1092)
     slots = ["1092", "1029", "2128"]
-    
+
     # Baseline evaluation without acquired augments: 1092 has no base stats
     ev_base = recommend.evaluate(store, "17", slots, acquired_augments=[])
     assert ev_base["slots"][0]["score"] is None
 
-    # Evaluation with 珠光护手 (1048) acquired: 1092 gets synergy score of 7.5
+    # 已持珠光护手 (1048) 时，1092 命中「天命双法爆」组合；但 1092 在本英雄/全服统计里一局都没有，
+    # 属「新海克斯无数据」：联动只展示、不计分，零数据的卡不能靠手工组合表当上首选。
     ev_synergy = recommend.evaluate(store, "17", slots, acquired_augments=["1048"])
     slot_synergy = ev_synergy["slots"][0]
-    
-    assert slot_synergy["score"] == 7.5
-    assert slot_synergy["combo_synergy"]["bonus"] == 7.5
+
+    assert slot_synergy["verdict"] == "nodata"
+    assert slot_synergy["score"] is None
+    assert slot_synergy["combo_synergy"]["bonus"] == 6.0
+    assert any("不计分" in r for r in slot_synergy["reasons"])
     assert any("天命双法爆" in r for r in slot_synergy["reasons"])
     assert len(slot_synergy["must_buy_items"]) > 0
     assert any(it["name"] == "无尽之刃" for it in slot_synergy["must_buy_items"])
-    assert "联动加权推荐" in ev_synergy["advice"]
+    # 首选仍然是有实测数据的 1029（虚幻武器），而不是零数据的组合卡
+    assert ev_synergy["slots"][1]["verdict"] == "best"
+    assert "联动加权推荐" not in ev_synergy["advice"]
 
 
 def test_recommend_evaluate_with_acquired_augments_tiered(store):
-    # 秘术冲拳 (1058) in slots, and 双刀流 (1225) acquired -> 双刀极限连打 (+7.0)
-    slots = ["1058", "1029", "2128"]
-    
-    ev_base = recommend.evaluate(store, "17", slots, acquired_augments=[])
+    # 安妮（纯法师）候选虚幻武器 (1029)，已持小蜜蜂 (3086) -> 蜜蜂虚幻全额引爆（表值 +7.5）。
+    # 1029 的攻击特效机制和安妮不契合：联动分按机制契合折算后计入，不给全额。
+    slots = ["1029", "2128", "1373"]
+
+    ev_base = recommend.evaluate(store, "1", slots, acquired_augments=[])
     score_base = ev_base["slots"][0]["score"]
     assert score_base is not None
 
-    ev_synergy = recommend.evaluate(store, "17", slots, acquired_augments=["1225"])
+    ev_synergy = recommend.evaluate(store, "1", slots, acquired_augments=["3086"])
     slot_synergy = ev_synergy["slots"][0]
-    
-    assert slot_synergy["score"] == pytest.approx(score_base + 7.0, 0.01)
-    assert slot_synergy["combo_synergy"]["bonus"] == 7.0
-    assert any("双刀极限连打" in r for r in slot_synergy["reasons"])
-    assert any(it["name"] == "破败王者之刃" for it in slot_synergy["must_buy_items"])
+
+    from lolhex import fit
+    gate = fit.combo_gate("1029", "1")
+    raw = synergy.evaluate_combo_synergies("1029", ["3086"])["bonus"]
+    applied = round(raw * gate, 2)
+    assert 0 < gate < 1  # 安妮不是普攻流派：联动分折算
+    assert slot_synergy["score"] == pytest.approx(score_base + applied, 0.01)
+    assert slot_synergy["combo_synergy"]["bonus"] == raw  # 机制推导的原始分保留
+    assert slot_synergy["combo_synergy"]["applied_score"] == applied
+    assert any("蜜蜂虚幻全额引爆" in r for r in slot_synergy["reasons"])
+    assert any("机制契合折算" in r for r in slot_synergy["reasons"])
+    assert any(it["name"] == "斯塔缇克电刃" for it in slot_synergy["must_buy_items"])
 
 
 def test_engine_acquired_augments_state_and_clear(store, tmp_path):
@@ -92,7 +107,7 @@ def test_engine_acquired_augments_state_and_clear(store, tmp_path):
     # Evaluation should reflect synergy
     ev = eng.state.get("evaluation")
     assert ev is not None
-    assert ev["slots"][0]["combo_synergy"]["bonus"] == 7.0
+    assert ev["slots"][0]["combo_synergy"]["bonus"] == synergy.evaluate_combo_synergies("1058", ["1225"])["bonus"]
 
     # Record second augment
     eng.record_acquired_augment("3086")

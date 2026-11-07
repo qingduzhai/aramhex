@@ -1447,15 +1447,17 @@ class MainWindow(QMainWindow):
                     s += f" · <span style='color:#ff7a6b'>{warn}</span>"
                 lines.append(s)
 
-            # 联动加成与冲突提示
+            # 联动加成与冲突提示（按机制契合折算后的实际值展示，和分数口径一致）
             combo = r.get("combo_synergy")
             if combo:
+                gate = combo.get("gate", 1.0)
+                gate_note = f" <span style='color:#94a3b8;font-size:10px'>（机制契合折算 ×{gate:.0%}）</span>" if gate < 0.999 else ""
                 if combo.get("bonus", 0) > 0:
-                    lines.append(f"<b style='color:#f59e0b'>★ 联动加成：{combo['bonus']:+.1f}pp</b>")
+                    lines.append(f"<b style='color:#f59e0b'>★ 联动加成：{combo['bonus'] * gate:+.1f}pp</b>{gate_note}")
                     for reas in combo.get("reasons", []):
                         lines.append(f"<span style='color:#fbbf24;font-size:11px'>{escape(reas)}</span>")
                 if combo.get("penalty", 0) < 0:
-                    lines.append(f"<b style='color:#ef4444'>⚠ 机制冲突：{combo['penalty']:.1f}pp</b>")
+                    lines.append(f"<b style='color:#ef4444'>⚠ 机制冲突：{combo['penalty'] * gate:.1f}pp</b>{gate_note}")
                     for conf in combo.get("conflicts", []):
                         lines.append(f"<span style='color:#f87171;font-size:11px'>{escape(conf)}</span>")
 
