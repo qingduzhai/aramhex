@@ -387,19 +387,27 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
                 for reas in combo_eval["reasons"]:
                     r["reasons"].append(reas)
 
-        # 符文驱动的核心必出装备推荐
-        if aid and hero_id:
+        # 符文驱动的核心必出装备推荐与强提示联动档案
+        if aid:
             from . import synergy
-            anchor_items = synergy.get_augment_core_items(aid, store, hero_id=hero_id)
-            combo_items = (r.get("combo_synergy") or {}).get("core_items", [])
-            seen_items = set()
-            must_buy = []
-            for it in combo_items + anchor_items:
-                iid = str(it.get("id") or it.get("item") or "")
-                if iid and iid not in seen_items:
-                    seen_items.add(iid)
-                    must_buy.append(it)
-            r["must_buy_items"] = must_buy
+            prof = synergy.get_augment_synergy_profile(
+                store, hero_id, aid,
+                combo_synergy=r.get("combo_synergy"),
+                acquired_aids=acquired_list,
+            )
+            r["synergy_profile"] = prof
+            if hero_id:
+                anchor_items = synergy.get_augment_core_items(aid, store, hero_id=hero_id)
+                combo_items = [synergy._enrich_item(x, store, tag="★联动必出")
+                               for x in (r.get("combo_synergy") or {}).get("core_items", [])]
+                seen_items = set()
+                must_buy = []
+                for it in combo_items + anchor_items:
+                    iid = str(it.get("id") or it.get("item") or "")
+                    if iid and iid not in seen_items:
+                        seen_items.add(iid)
+                        must_buy.append(it)
+                r["must_buy_items"] = must_buy
 
         results.append(r)
 
@@ -483,7 +491,13 @@ def evaluate(store, hero_id: str | None, slots: list[str | None], k: int = 300,
     if not hero_id:
         advice += "（未识别英雄，按全英雄数据）"
     if best is not None and (best.get("combo_synergy") or {}).get("bonus", 0) > 0:
-        advice += "（已持符文联动加权推荐）"
+        combos = (best.get("combo_synergy") or {}).get("combos") or []
+        c_tag = f"🔥触发【{combos[0]['name']}】· " if combos and combos[0].get("curated") else ""
+        advice += f"（{c_tag}已持符文联动加权推荐）"
+    elif best is not None and (best.get("synergy_profile") or {}).get("kind") == "dual":
+        bname = (best.get("synergy_profile") or {}).get("build_name") or ""
+        if bname:
+            advice += f"（⚡本英雄绝活质变：【{bname}】）"
 
     pentakill = pentakill_rates(store, hero_id) if any(a in PENTAKILL for a in slots if a) else None
     from . import synergy

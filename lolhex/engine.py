@@ -219,9 +219,23 @@ class Engine:
         aid_str = str(aid)
         with self._lock:
             cur = list(self.state.get("acquired_augments", []))
-            if aid_str not in cur:
-                cur.append(aid_str)
-                self.state["acquired_augments"] = cur
+            # 检查当前三选一 offer 中是否有其他卡片已经在 cur 中；若有，说明玩家是在同一轮三选一里改选
+            offer = self.state.get("offer")
+            if offer and offer.get("slots"):
+                offer_aids = {str(s) for s in offer["slots"] if s}
+                replaced = False
+                for i, existing in enumerate(cur):
+                    if existing in offer_aids and existing != aid_str:
+                        cur[i] = aid_str
+                        replaced = True
+                        break
+                if not replaced and aid_str not in cur:
+                    cur.append(aid_str)
+            else:
+                if aid_str not in cur:
+                    cur.append(aid_str)
+            self.state["acquired_augments"] = cur
+            self.state["_acquired_explicit"] = aid_str  # 显式手动选定，防止三选一关闭时再次推测误记
             guess = self.state.get("_acquired_guess")
             if guess and guess.get("aid") == aid_str:
                 self.state["_acquired_guess"] = None  # 玩家手动确认过，不再当推测记录撤回
@@ -914,20 +928,26 @@ class Engine:
             if offer is None:
                 self._evaluation_revision += 1
                 prev_ev = self.state.get("evaluation")
-                if prev and prev_ev and self.state.get("phase") == "ingame" and self.state.get("hero_id"):
-                    best_slot = None
-                    for s in prev_ev.get("slots", []):
-                        if s.get("verdict") == "best" and s.get("augment_id"):
-                            best_slot = s
-                            break
-                    if best_slot:
-                        aid_str = str(best_slot["augment_id"])
-                        cur_acq = list(self.state.get("acquired_augments", []))
-                        if aid_str not in cur_acq:
-                            cur_acq.append(aid_str)
-                            self.state["acquired_augments"] = cur_acq
-                            self.state["_acquired_guess"] = {"aid": aid_str, "at": time.monotonic()}
-                            log.info("三选一结束，推测记录推荐首选符文入本局已持：%s (%s)", aid_str, best_slot.get("name"))
+                explicit = self.state.get("_acquired_explicit")
+                if explicit:
+                    self.state["_acquired_explicit"] = None
+                elif prev and prev_ev and self.state.get("phase") == "ingame" and self.state.get("hero_id"):
+                    # 检查 prev 的卡片是不是已经有任何一张在 acquired_augments 里面了（比如玩家手动选过某一张）
+                    prev_slots = [str(s.get("augment_id")) for s in prev_ev.get("slots", []) if s.get("augment_id")]
+                    cur_acq = list(self.state.get("acquired_augments", []))
+                    if not any(slot_aid in cur_acq for slot_aid in prev_slots):
+                        best_slot = None
+                        for s in prev_ev.get("slots", []):
+                            if s.get("verdict") == "best" and s.get("augment_id"):
+                                best_slot = s
+                                break
+                        if best_slot:
+                            aid_str = str(best_slot["augment_id"])
+                            if aid_str not in cur_acq:
+                                cur_acq.append(aid_str)
+                                self.state["acquired_augments"] = cur_acq
+                                self.state["_acquired_guess"] = {"aid": aid_str, "at": time.monotonic()}
+                                log.info("三选一结束，推测记录推荐首选符文入本局已持：%s (%s)", aid_str, best_slot.get("name"))
                 self.state.update(offer=None, evaluation=None)
                 return
             if self.state["phase"] != "ingame" or (context and context[0] != getattr(self, "_scan_epoch", 0)):

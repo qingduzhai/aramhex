@@ -235,7 +235,7 @@ class BadgeLayer(_Layer):
                     logical = QRectF(bounds.x()*factor, bounds.y()*factor,
                                      bounds.width()*factor, bounds.height()*factor)
                     region |= logical.toAlignedRect().adjusted(-2, -2, 2, 2)
-            hint = r.get("item_hint")
+            hint = self._effective_hint(r)
             hint_win = snap.get("settings", {}).get("show_winrate", True) if hint else None
             visual = (label, color.rgba(), lines, hint, hint_win, badge, hint_rect)
             cards[r["index"]] = (copy.deepcopy(visual), region)
@@ -254,6 +254,15 @@ class BadgeLayer(_Layer):
                         dirty |= after[1]
             if not dirty.isEmpty():
                 self.update(dirty)
+
+    @staticmethod
+    def _effective_hint(r: dict) -> dict | None:
+        if r.get("item_hint"):
+            return r["item_hint"]
+        sp = r.get("synergy_profile") or {}
+        if sp.get("items_box"):
+            return sp["items_box"]
+        return None
 
     def _badge_layout(self, snap):
         ev, offer = snap["evaluation"], snap["offer"]
@@ -283,7 +292,10 @@ class BadgeLayer(_Layer):
             x1 = (box[2] - ox) / unit
             y0 = (box[1] - oy) / unit
             cx = (x0 + x1) / 2
+            max_ln_w = max(250, int(x1 - x0) - 16)
             label, color = VERDICT.get(r["verdict"], VERDICT["unknown"])
+            cs = r.get("combo_synergy") or {}
+            sp = r.get("synergy_profile") or {}
             since = (offer.get("unread_since") or [None] * 3)[i] if not r.get("augment_id") else None
             if since is not None and time.monotonic() - since < READING_S:
                 label = "识别中…"
@@ -295,6 +307,19 @@ class BadgeLayer(_Layer):
                 label = "样本太少 · 建议刷新"
             elif r["verdict"] == "best" and r.get("sample_warning"):
                 label = "相对较好 · 仅供参考"
+            elif cs.get("bonus", 0) > 0:
+                prefix = sp.get("badge_prefix") or "🔥 联动质变"
+                v_cn = "首选" if r["verdict"] == "best" else ("可选" if r["verdict"] == "ok" else "联动可选")
+                label = f"{prefix} · {v_cn}"
+            elif cs.get("penalty", 0) < 0 and cs.get("bonus", 0) <= 0:
+                v_cn = "建议刷新" if r["verdict"] == "reroll" else "慎选"
+                label = f"⛔ 机制冲突 · {v_cn}"
+            elif sp.get("kind") == "dual" and r["verdict"] in ("best", "ok"):
+                v_cn = "首选" if r["verdict"] == "best" else "可选"
+                label = f"⚡ 绝活质变 · {v_cn}"
+            elif sp.get("kind") == "pivot" and r["verdict"] in ("best", "ok"):
+                v_cn = "首选" if r["verdict"] == "best" else "可选"
+                label = f"🎯 流派质变 · {v_cn}"
             elif r.get("decision_badge"):
                 if r["verdict"] == "best":
                     label = f"{r['decision_badge']} · 首选"
@@ -305,9 +330,35 @@ class BadgeLayer(_Layer):
             lines = []
             if r.get("score") is not None:
                 s = f"{r['score']:+.1f}"
+                if cs.get("applied_score") and r.get("score_before_synergy") is not None:
+                    s += f" (含联动{cs['applied_score']:+.1f})"
                 if show_win and recommend.win_text(r):
                     s += " · " + recommend.win_text(r)
-                lines.append(s)
+                lines.append(fm_small.elidedText(s, Qt.ElideRight, max_ln_w))
+
+            # 强提示第 2 行：海克斯组合联动 / 英雄绝活质变 / 可凑联动预告
+            if sp.get("synergy_line"):
+                lines.append(fm_small.elidedText(sp["synergy_line"], Qt.ElideRight, max_ln_w))
+            elif cs.get("bonus"):
+                g = cs.get("gate", 1.0)
+                syn_txt = f"★ 联动加成 {cs['bonus'] * g:+.1f}pp" + (f" (×{g:.0%})" if g < 0.999 else "")
+                lines.append(fm_small.elidedText(syn_txt, Qt.ElideRight, max_ln_w))
+            elif cs.get("penalty"):
+                g = cs.get("gate", 1.0)
+                lines.append(fm_small.elidedText(f"⚠ 机制冲突 {cs['penalty'] * g:.1f}pp", Qt.ElideRight, max_ln_w))
+
+            # 强提示第 3 行：海克斯对应核心出装（直接写在标签上，配合下方图标框双保险）
+            must_buy = r.get("must_buy_items") or []
+            if must_buy:
+                item_names = " · ".join(it.get("name", "") for it in must_buy[:3] if it.get("name"))
+                if item_names:
+                    prefix_it = "💡 联动必出：" if cs.get("bonus", 0) > 0 else (
+                        "💡 绝活必出：" if sp.get("kind") == "dual" else (
+                            "💡 质变必出：" if sp.get("kind") == "pivot" else "💡 推荐出装："
+                        )
+                    )
+                    lines.append(fm_small.elidedText(f"{prefix_it}{item_names}", Qt.ElideRight, max_ln_w))
+
             meta = []
             if r.get("rarity") and r.get("rank"):
                 metric = "胜率" if r.get("rank_basis") == "hero_rarity_win_rate" else ""
@@ -320,17 +371,10 @@ class BadgeLayer(_Layer):
                 meta.append(f"测试服 {r['pbe_games']} 局 胜率{_pct(r['pbe_win'])}")
             if r.get("thin") == "few" or r.get("sample_warning") and r.get("thin") != "too_few":
                 meta.insert(0, "样本偏少")
-            cs = r.get("combo_synergy")
-            if cs and cs.get("bonus"):
-                g = cs.get("gate", 1.0)  # 机制契合折算后的实际加分，和分数口径一致
-                meta.insert(0, f"★ 联动 {cs['bonus'] * g:+.1f}" + (f"×{g:.0%}" if g < 0.999 else ""))
-            elif cs and cs.get("penalty"):
-                g = cs.get("gate", 1.0)
-                meta.insert(0, f"⚠ 冲突 {cs['penalty'] * g:.1f}")
             if not ev.get("hero_id"):  # 只在浮窗里写的话进游戏 5 秒就收起，玩家常常不知道是按全英雄算的
                 meta.insert(0, "未识别英雄 · 按全英雄数据")
             if meta:
-                lines.append(" · ".join(meta))
+                lines.append(fm_small.elidedText(" · ".join(meta), Qt.ElideRight, max_ln_w))
             # 标题框只是标题文字那么宽（还没校准时）：字长的（尊我为王那句）按字撑开，不让底框比字窄
             w = max(170.0, x1 - x0, fm_big.horizontalAdvance(label) + 20,
                     max((fm_small.horizontalAdvance(ln) for ln in lines), default=0) + 16)
@@ -347,7 +391,7 @@ class BadgeLayer(_Layer):
                 title_pad = (boxes[r["index"]][3] - boxes[r["index"]][1]) / unit * 2 / 9
                 shift = min(12.0, max(0.0, title_pad)) if offer.get("padded") else 0.0
                 rect = QRect(int(cx - w / 2), int(y0 - 4 + shift - h), int(w), int(h))
-            hint = r.get("item_hint")
+            hint = self._effective_hint(r)
             hr = self._item_hint_rect(hint, cx, y0, yc, rect, below, snap.get("settings", {}).get("show_winrate", True)) if hint else None
             result.append((r, label, color, lines, rect, hr, cx, y0, yc))
         return result
@@ -365,24 +409,41 @@ class BadgeLayer(_Layer):
         p.scale(unit / self._scale(), unit / self._scale())
         f_big = QFont("Microsoft YaHei UI", 12, QFont.Bold)
         f_small = QFont("Microsoft YaHei UI", 9)
+        f_small_bold = QFont("Microsoft YaHei UI", 9, QFont.Bold)
         fm_small = QFontMetrics(f_small, self)
         drawn = []
         for r, label, color, lines, rect, hr, cx, y0, yc in self._badge_layout(snap):
             drawn.append(rect)
+            cs = r.get("combo_synergy") or {}
+            sp = r.get("synergy_profile") or {}
+            has_strong_synergy = bool(cs.get("bonus", 0) > 0 or sp.get("kind") == "dual")
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor(10, 12, 16, 215))
+            p.setBrush(QColor(18, 16, 12, 228) if has_strong_synergy else QColor(10, 12, 16, 215))
             p.drawRoundedRect(rect, 6, 6)
             p.setPen(QPen(color, 2 if r["verdict"] == "best" else 1))
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 6, 6)
+            if has_strong_synergy:
+                p.setPen(QPen(QColor(251, 191, 36, 210), 1))
+                p.drawRoundedRect(rect.adjusted(3, 3, -3, -3), 4, 4)
             p.setFont(f_big)
-            p.setPen(color)
+            p.setPen(QColor(251, 191, 36) if cs.get("bonus", 0) > 0 and r["verdict"] != "reroll" else color)
             p.drawText(QRect(rect.x(), rect.y() + 4, rect.width(), 24), Qt.AlignHCenter, label)
-            p.setFont(f_small)
-            p.setPen(QColor(225, 228, 235))
             for k, ln in enumerate(lines):
+                if ln.startswith(("★", "🔥", "⚡", "🎯", "🔗")):
+                    p.setFont(f_small_bold)
+                    p.setPen(QColor(251, 191, 36))
+                elif ln.startswith(("⚠", "⛔")):
+                    p.setFont(f_small_bold)
+                    p.setPen(QColor(255, 110, 100))
+                elif ln.startswith("💡"):
+                    p.setFont(f_small_bold)
+                    p.setPen(QColor(96, 210, 255))
+                else:
+                    p.setFont(f_small)
+                    p.setPen(QColor(225, 228, 235))
                 p.drawText(QRect(rect.x() + 4, rect.y() + 28 + 18 * k, rect.width() - 8, 18), Qt.AlignHCenter, ln)
-            hint = r.get("item_hint")
+            hint = self._effective_hint(r)
             if hint and hr:
                 self._paint_item_hint(p, hint, hr, fm_small, show_win)
                 drawn.append(hr)
@@ -393,6 +454,8 @@ class BadgeLayer(_Layer):
     def _item_hint_stat(row, hint, show_win):
         """装备右侧那段数字：默认只有相对英雄基准的加减，其余字段由数据决定。"""
         parts = ["样本偏少"] if row.get("low_sample") else []
+        if row.get("tag"):
+            parts.append(str(row["tag"]))
         if show_win and row.get("win") is not None:
             if hint.get("show_rate", True) is True:
                 parts.append(f"胜率 {_pct(row['win'])}")
@@ -428,13 +491,18 @@ class BadgeLayer(_Layer):
         p.setPen(Qt.NoPen)
         p.setBrush(HINT_BG)
         p.drawRoundedRect(rect, 6, 6)
+        if hint.get("source") == "synergy":
+            border_col = QColor(245, 158, 11, 210) if hint.get("is_special") else QColor(56, 189, 248, 170)
+            p.setPen(QPen(border_col, 1.5))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 6, 6)
         rows = hint["items"][:3]
         if not rows:
             p.setPen(QColor(170, 176, 190))
             p.drawText(rect, Qt.AlignCenter, hint.get("note") or "")
             return
         x, width = rect.x() + HINT_PAD, rect.width() - 2 * HINT_PAD
-        p.setPen(QColor(231, 195, 90))
+        p.setPen(QColor(251, 191, 36) if hint.get("is_special") else QColor(231, 195, 90))
         p.drawText(QRect(x, rect.y() + 4, width, 18), Qt.AlignLeft, title)
         row_h = min(HINT_ROW_H, (rect.height() - HINT_HEAD_H - 4) // len(rows))
         for i, row in enumerate(rows):
@@ -453,8 +521,16 @@ class BadgeLayer(_Layer):
             p.drawText(QRect(text_x, y + 2, name_w, 18), Qt.AlignLeft,
                        fm.elidedText(row["name"], Qt.ElideRight, name_w))
             delta = row.get("delta") if show_win else None
-            p.setPen(QColor(190, 196, 208) if delta is None or round(delta, 1) == 0
-                     else QColor(95, 211, 141) if delta > 0 else QColor(255, 122, 107))
+            tag_str = str(row.get("tag") or "")
+            if delta is not None and round(delta, 1) != 0:
+                stat_col = QColor(95, 211, 141) if delta > 0 else QColor(255, 122, 107)
+            elif "联动" in tag_str or "绝活" in tag_str:
+                stat_col = QColor(251, 191, 36)
+            elif "质变" in tag_str:
+                stat_col = QColor(96, 210, 255)
+            else:
+                stat_col = QColor(190, 196, 208)
+            p.setPen(stat_col)
             p.drawText(QRect(x + width - stat_w, y + 2, stat_w, 18), Qt.AlignRight,
                        fm.elidedText(stat, Qt.ElideRight, stat_w))
 
@@ -868,6 +944,24 @@ class ControlPanel(QWidget):
         elif href.startswith("add_aid:"):
             self.engine.record_acquired_augment(href.split(":", 1)[1])
             self.give_back_focus()
+        elif href.startswith("pick_slot:"):
+            try:
+                idx = int(href.split(":", 1)[1])
+                snap = self.engine.snapshot()
+                ev = snap.get("evaluation")
+                if ev and ev.get("slots") and 0 <= idx < len(ev["slots"]):
+                    slot = ev["slots"][idx]
+                    aid = slot.get("augment_id")
+                    if aid:
+                        cur_acq = list(snap.get("acquired_augments", []))
+                        if str(aid) in [str(x) for x in cur_acq]:
+                            remove_idx = [str(x) for x in cur_acq].index(str(aid))
+                            self.engine.remove_acquired_augment(remove_idx)
+                        else:
+                            self.engine.record_acquired_augment(aid)
+                self.give_back_focus()
+            except Exception as e:
+                log.warning("pick_slot error: %s", e)
         elif href.startswith("remove_aid:"):
             try:
                 self.engine.remove_acquired_augment(int(href.split(":", 1)[1]))
@@ -964,6 +1058,15 @@ class ControlPanel(QWidget):
                 log.debug("选英雄：认出英雄 %s，浮窗自动展开", hid)
                 self.toggle()
                 self._auto_opened = True
+        offer_key = tuple(snap.get("offer", {}).get("slots", [])) if snap.get("offer") else None
+        if not offer_key or not any(offer_key):
+            self._auto_opened_offer = None
+        elif snap.get("phase") == "ingame" and getattr(self, "_auto_opened_offer", None) != offer_key:
+            self._auto_opened_offer = offer_key
+            if not self.expanded:
+                log.debug("局内三选一出现，浮窗自动展开方便玩家同步选符文")
+                self.toggle()
+                self._auto_opened = True
         if not self.expanded:
             return
         self._ensure_completer()
@@ -994,6 +1097,7 @@ class ControlPanel(QWidget):
         if cs and (cs.get("bench") or cs.get("cards")):
             parts.append(champ_select_summary(cs, show_win))
         ev = snap.get("evaluation")
+        acquired = list(snap.get("acquired_augments") or [])
         if ev:
             waiting = any((snap.get("offer") or {}).get("pending_columns") or ())
             advice = "卡片更新中，等待识别确认" if waiting else ev['advice']
@@ -1001,29 +1105,112 @@ class ControlPanel(QWidget):
             pk = recommend.pentakill_text(ev.get("pentakill")) if not waiting else ""
             if pk:
                 parts.append(f"<span style='color:#c9a0ff'>{escape(pk)}</span>")
+            if not waiting and ev.get("slots"):
+                slot_cards = []
+                for idx, s in enumerate(ev["slots"]):
+                    aid = s.get("augment_id")
+                    nm = s.get("name")
+                    if not aid or not nm:
+                        continue
+                    is_held = str(aid) in [str(x) for x in acquired]
+                    is_best = s.get("verdict") == "best"
+                    badge = s.get("decision_badge") or ("首选" if is_best else "")
+                    badge_str = f" · {badge}" if badge else ""
+                    if is_held:
+                        btn_html = (
+                            f"<a href='pick_slot:{idx}' style='display:inline-block;background:#059669;color:#ffffff;"
+                            f"border:1px solid #34d399;border-radius:4px;padding:3px 7px;text-decoration:none;font-weight:bold;font-size:11px;margin:2px;'>"
+                            f"★ {idx+1}. {escape(nm)} [已选]</a>"
+                        )
+                    elif is_best:
+                        btn_html = (
+                            f"<a href='pick_slot:{idx}' style='display:inline-block;background:#1e293b;color:#fbbf24;"
+                            f"border:1px solid #f59e0b;border-radius:4px;padding:3px 7px;text-decoration:none;font-size:11px;margin:2px;'>"
+                            f"👑 {idx+1}. {escape(nm)}{escape(badge_str)}</a>"
+                        )
+                    else:
+                        btn_html = (
+                            f"<a href='pick_slot:{idx}' style='display:inline-block;background:#1e293b;color:#cbd5e1;"
+                            f"border:1px solid #475569;border-radius:4px;padding:3px 7px;text-decoration:none;font-size:11px;margin:2px;'>"
+                            f"🔘 {idx+1}. {escape(nm)}{escape(badge_str)}</a>"
+                        )
+                    slot_cards.append(btn_html)
+                if slot_cards:
+                    parts.append(
+                        "<div style='background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px;margin:4px 0;'>"
+                        "<div style='color:#94a3b8;font-size:11px;margin-bottom:4px;'><b>⚡ 本轮三选一（点击直接锁定并联动出装）：</b></div>"
+                        + " ".join(slot_cards)
+                        + "</div>"
+                    )
         if hid:
             from .. import synergy
-            acquired = snap.get("acquired_augments") or []
             store = getattr(self.engine, "store", None)
+            aug_dict = getattr(store, "augments", {}) if store else {}
             rb = synergy.get_hero_rune_build(hid, acquired, store)
             if rb and rb.get("items"):
-                color = "#f59e0b" if rb.get("is_rune_adapted") else "#38bdf8"
-                tag_desc = "已根据符文质变适配" if rb.get("is_rune_adapted") else "开局预备流派"
+                is_adapted = rb.get("is_rune_adapted")
+                color = "#f59e0b" if is_adapted else "#38bdf8"
+                tag_desc = rb.get("status_label") or ("已根据符文质变适配" if is_adapted else "开局预备流派")
                 parts.append(f"<div style='background:#171d29;border:1px solid {color};padding:6px 8px;border-radius:6px;margin:4px 0;'>")
-                parts.append(f"<b style='color:{color};font-size:13px'>★ 符文专属：{escape(rb['build_name'])}</b> <span style='color:#94a3b8;font-size:10px'>({tag_desc})</span>")
+                parts.append(f"<b style='color:{color};font-size:13px'>★ 符文专属出装：{escape(rb['build_name'])}</b> "
+                             f"<span style='color:#94a3b8;font-size:10px'>({escape(tag_desc)})</span>")
+                if acquired:
+                    chips = []
+                    for idx, aid in enumerate(acquired):
+                        aname = (aug_dict.get(str(aid)) or {}).get("name") or str(aid)
+                        chips.append(
+                            f"<span style='color:#fbbf24'>{escape(aname)}</span>"
+                            f"<a href='remove_aid:{idx}' style='color:#f87171;text-decoration:none;'>×</a>"
+                        )
+                    parts.append(
+                        "<div style='font-size:11px;color:#cbd5e1;margin-top:2px;'>已持符文："
+                        + " · ".join(chips)
+                        + "　<a href='clear_acq' style='color:#94a3b8;text-decoration:none;'>[清空]</a></div>"
+                    )
+                elif rb.get("trigger_augments"):
+                    trig_links = [
+                        f"<a href='add_aid:{t['id']}' style='color:#fbbf24;text-decoration:none;'>⚡{escape(t['name'])}</a>"
+                        for t in rb["trigger_augments"][:3]
+                    ]
+                    parts.append(
+                        "<div style='font-size:11px;color:#94a3b8;margin-top:2px;'>质变触发海克斯："
+                        + " / ".join(trig_links) + "</div>"
+                    )
+                core_cnt = rb.get("core_count") or 3
                 item_parts = []
-                for it in rb["items"]:
+                boots_it = rb.get("boots")
+                if boots_it and boots_it.get("name"):
+                    b_img = buildview.item(self.engine.icons, boots_it, 20)
+                    b_nm = escape(boots_it.get("name", ""))
+                    if b_img and "<img" in b_img:
+                        item_parts.append(f"👟{b_img}&nbsp;{b_nm}")
+                    else:
+                        item_parts.append(f"👟【{b_nm}】")
+                for idx, it in enumerate(rb["items"]):
                     img = buildview.item(self.engine.icons, it, 22)
                     nm = escape(it.get("name", ""))
-                    if img and "<img" in img:
-                        item_parts.append(f"{img}&nbsp;{nm}")
+                    is_core = idx < core_cnt
+                    if is_core:
+                        nm_html = f"<b style='color:#fbbf24'>{nm}★</b>" if is_adapted else f"<b style='color:#38bdf8'>{nm}</b>"
                     else:
-                        item_parts.append(f"【{nm}】")
+                        nm_html = f"<span style='color:#cbd5e1'>{nm}</span>"
+                    if img and "<img" in img:
+                        item_parts.append(f"{img}&nbsp;{nm_html}")
+                    else:
+                        item_parts.append(f"【{nm_html}】")
                 parts.append("<div style='margin:3px 0;font-size:11px;'>" + " → ".join(item_parts) + "</div>")
                 if rb.get("explanation"):
                     parts.append(f"<span style='color:#94a3b8;font-size:11px'>💡 {escape(rb['explanation'])}</span>")
+                if rb.get("next_combos"):
+                    nxt = rb["next_combos"][0]
+                    parts.append(
+                        f"<div style='color:#fbbf24;font-size:11px;margin-top:2px;'>"
+                        f"🔮 下轮留意：<b>【{escape(nxt['partner_name'])}】</b>→ 凑【{escape(nxt['combo_name'])}】({nxt['bonus']:+.1f}pp)</div>"
+                    )
                 parts.append("</div>")
         if d:
+            from .. import synergy as _syn
+            store = getattr(self.engine, "store", None)
             parts.append("<span style='color:#64748b;font-size:11px'>── 官方大数据基准出装 ──</span>")
             parts.extend(buildview.lines(d, self.engine.icons, show_win, size=22, compact=True))
             sk = buildview.skills_line(d, show_win)
@@ -1032,7 +1219,13 @@ class ControlPanel(QWidget):
             top = [a for a in d.get("augments", []) if a.get("delta") is not None and a.get("sample") != "low"]
             top.sort(key=lambda a: -a["delta"])
             if top:
-                parts.append("推荐海克斯：" + "、".join(f"{a['name']}({a['delta']:+.1f})" for a in top[:5]))
+                top_strs = []
+                for a in top[:5]:
+                    aid = str(a.get("id") or "")
+                    c_items = _syn.get_augment_core_items(aid, hid, store) if aid else []
+                    item_tag = f"·配【{escape(c_items[0]['name'])}】" if c_items else ""
+                    top_strs.append(f"{escape(a['name'])}({a['delta']:+.1f}{item_tag})")
+                parts.append("推荐海克斯：" + "、".join(top_strs))
         if snap.get("vision", {}).get("blank"):
             parts.append("<span style='color:#ff7a6b'>游戏可能是全屏模式，无法识别。请在游戏内设置-窗口模式中选择无边框/窗口。</span>")
         parts.append(f"<span style='color:#8b93a7'>{data_status_html(snap.get('data', {}))}</span>")

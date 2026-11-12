@@ -41,6 +41,15 @@ def bundled_icons(path: Path = BUNDLED) -> dict[str, dict[str, str]]:
     return out
 
 
+_ITEM_ICON_FALLBACK_KEYS = {
+    "3027": "6657",  # 时光之杖
+    "4637": "4633",  # 峡谷制造者
+    "6656": "4646",  # 风暴狂涌
+    "3040": "3003",  # 炽天使之拥 -> 大天使之杖
+    "3042": "3004",  # 魔切 -> 魔宗
+}
+
+
 class IconCache:
     def __init__(self, folder: Path, workers: int = 4, *, allow_network: bool = True):
         self.folder = folder
@@ -75,7 +84,10 @@ class IconCache:
 
     @staticmethod
     def _unpack(kind: str, key: str, path: Path) -> bool | None:
-        blob = (bundled_icons().get(kind) or {}).get(key)
+        kind_map = bundled_icons().get(kind) or {}
+        blob = kind_map.get(key)
+        if not blob and kind == "item" and key in _ITEM_ICON_FALLBACK_KEYS:
+            blob = kind_map.get(_ITEM_ICON_FALLBACK_KEYS[key])
         if not blob:
             return None
         try:

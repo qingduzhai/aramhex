@@ -448,6 +448,8 @@ class MainWindow(QMainWindow):
         self.acq_chips_label = QLabel("<span style='color:#777'>暂无已记录符文（在下方卡片点击「✔ 选入本局已持」即可记录并触发联动加权）</span>")
         self.acq_chips_label.setTextFormat(Qt.RichText)
         self.acq_chips_label.setWordWrap(True)
+        self.acq_chips_label.setOpenExternalLinks(False)
+        self.acq_chips_label.linkActivated.connect(self._handle_hero_link)
         acq_lay.addWidget(self.acq_chips_label)
         l2.addWidget(acq_box)
 
@@ -1259,21 +1261,76 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "acq_chips_label"):
             return
         if acquired:
+            from .. import synergy
             parts = []
             eng = getattr(self, "engine", None)
             store = getattr(eng, "store", None)
+            icons = getattr(eng, "icons", None) if eng else None
+            hid = (getattr(eng, "state", {}) or {}).get("hero_id") if eng else None
             aug_dict = getattr(store, "augments", {}) if store else {}
             for idx, aid in enumerate(acquired):
-                name = (aug_dict.get(aid) or {}).get("name") or aid
-                rarity = (aug_dict.get(aid) or {}).get("rarity")
+                name = (aug_dict.get(str(aid)) or {}).get("name") or str(aid)
+                rarity = (aug_dict.get(str(aid)) or {}).get("rarity")
                 r_cn = RARITY_CN.get(rarity, "")
                 parts.append(
-                    f"<span style='background-color:#1e293b;border:1px solid #475569;border-radius:4px;padding:2px 8px;margin-right:6px;'>"
-                    f"<b>{escape(name)}</b> <span style='color:#94a3b8;font-size:11px'>({r_cn})</span></span>"
+                    f"<span style='background-color:#1e293b;border:1px solid #475569;border-radius:4px;padding:2px 8px;margin-right:6px;color:#f8fafc;'>"
+                    f"<b>{escape(name)}</b> <span style='color:#94a3b8;font-size:11px'>({r_cn})</span> "
+                    f"<a href='remove_aid:{idx}' style='color:#f87171;text-decoration:none;'><b>×</b></a></span>"
                 )
-            self.acq_chips_label.setText(" ".join(parts))
+            lines = [" ".join(parts)]
+            rb = synergy.get_hero_rune_build(hid, acquired, store) if hid else None
+            if rb and rb.get("is_rune_adapted") and rb.get("items"):
+                core_cnt = rb.get("core_count") or min(3, len(rb["items"]))
+                core_nodes = []
+                for it in rb["items"][:max(1, core_cnt)]:
+                    img = buildview.item(icons, it, 20)
+                    nm = escape(it.get("name") or "")
+                    if img and "<img" in img:
+                        core_nodes.append(f"<span style='vertical-align:middle;'>{img}</span> <b style='color:#fde68a'>{nm}</b>")
+                    else:
+                        core_nodes.append(f"<b style='color:#fde68a'>【{nm}】</b>")
+                extra_nodes = []
+                boots_it = rb.get("boots")
+                if boots_it and boots_it.get("name"):
+                    b_img = buildview.item(icons, boots_it, 18)
+                    b_nm = escape(boots_it["name"])
+                    if b_img and "<img" in b_img:
+                        extra_nodes.append(f"👟<span style='vertical-align:middle;'>{b_img}</span> <span style='color:#cbd5e1'>{b_nm}</span>")
+                    else:
+                        extra_nodes.append(f"👟<span style='color:#cbd5e1'>{b_nm}</span>")
+                for it in rb["items"][max(1, core_cnt):]:
+                    img = buildview.item(icons, it, 18)
+                    nm = escape(it.get("name") or "")
+                    if img and "<img" in img:
+                        extra_nodes.append(f"<span style='vertical-align:middle;'>{img}</span> <span style='color:#cbd5e1'>{nm}</span>")
+                    else:
+                        extra_nodes.append(f"<span style='color:#cbd5e1'>{nm}</span>")
+                extra_html = (
+                    "　<span style='color:#94a3b8'>｜ 成型补强：</span>"
+                    + " <span style='color:#64748b'>→</span> ".join(extra_nodes)
+                ) if extra_nodes else ""
+                lines.append(
+                    f"<div style='margin-top:6px;padding:4px 8px;background:#141b2d;border-left:3px solid #f59e0b;border-radius:4px;font-size:12px;color:#e2e8f0;'>"
+                    f"<b style='color:#fbbf24'>💡 已持海克斯对应必出装备与6神装（{escape(rb.get('build_name', ''))}）：</b>"
+                    + " <span style='color:#94a3b8'>→</span> ".join(core_nodes)
+                    + extra_html
+                    + "</div>"
+                )
+            next_combos = synergy.get_potential_combos_for_acquired(acquired, hid, store)
+            if next_combos:
+                nc_parts = []
+                for nc in next_combos[:3]:
+                    nc_parts.append(
+                        f"<b style='color:#d97706'>【{escape(nc['partner_name'])}】</b>"
+                        f"<span style='color:#64748b'>（配{escape(nc['held_name'])}→{escape(nc['combo_name'])} {nc['bonus']:+.1f}pp）</span>"
+                    )
+                lines.append(
+                    "<div style='margin-top:4px;font-size:12px;'>"
+                    "<b style='color:#b45309'>🔮 后续三选一重点留意联动：</b>" + "　".join(nc_parts) + "</div>"
+                )
+            self.acq_chips_label.setText("".join(lines))
         else:
-            self.acq_chips_label.setText("<span style='color:#777'>暂无已记录符文（在下方卡片点击「✔ 选入本局已持」即可记录并触发联动加权）</span>")
+            self.acq_chips_label.setText("<span style='color:#777'>暂无已记录符文（在下方卡片点击「✔ 选入本局已持」即可记录并触发联动加权与对应装备）</span>")
 
     def _pick_offer_card(self, index: int) -> None:
         eng = getattr(self, "engine", None)
@@ -1286,7 +1343,13 @@ class MainWindow(QMainWindow):
         slot = ev["slots"][index]
         aid = slot.get("augment_id")
         if aid:
-            eng.record_acquired_augment(aid)
+            cur_acq = list(snap.get("acquired_augments", []))
+            if str(aid) in [str(x) for x in cur_acq]:
+                remove_idx = [str(x) for x in cur_acq].index(str(aid))
+                eng.remove_acquired_augment(remove_idx)
+            else:
+                eng.record_acquired_augment(aid)
+            self._panel_hero = None
             self.refresh()
 
     def _handle_hero_link(self, href: str):
@@ -1341,44 +1404,86 @@ class MainWindow(QMainWindow):
                 aug_tags = []
                 aug_dict = getattr(store, "augments", {}) if store else {}
                 for idx, aid in enumerate(acquired):
-                    aname = (aug_dict.get(aid) or {}).get("name") or aid
+                    aname = (aug_dict.get(str(aid)) or {}).get("name") or str(aid)
                     aug_tags.append(
-                        f"<span style='background:#1e293b;border:1px solid #475569;border-radius:4px;padding:2px 6px;margin-right:4px;'>"
+                        f"<span style='background:#1e293b;border:1px solid #f59e0b;border-radius:4px;padding:2px 6px;margin-right:4px;color:#fde68a;'>"
                         f"<b>{escape(aname)}</b> <a href='remove_aid:{idx}' style='color:#ef4444;text-decoration:none;'><b>×</b></a></span>"
                     )
                 out.append(f"<div style='margin-bottom:8px;font-size:12px;'><span style='color:#cbd5e1'>已激活符文：</span>"
                            + " ".join(aug_tags)
                            + " <a href='clear_acq' style='color:#94a3b8;font-size:11px;margin-left:6px;text-decoration:none;'>[清空全部]</a></div>")
             else:
-                out.append("<div style='margin-bottom:8px;font-size:12px;color:#94a3b8;'>"
-                           "<span>开局预备流派（选入海克斯后自动转轨）</span></div>")
+                trig = rune_build.get("trigger_augments") or []
+                if trig:
+                    t_links = [
+                        f"<a href='add_aid:{t['id']}' style='color:#fbbf24;text-decoration:none;background:#1e293b;padding:2px 6px;border-radius:4px;border:1px solid #f59e0b;'>⚡ 选入【{escape(t['name'])}】</a>"
+                        for t in trig[:4]
+                    ]
+                    out.append("<div style='margin-bottom:8px;font-size:12px;color:#cbd5e1;'>"
+                               "<b>⚡ 本流派核心触发海克斯：</b>" + " ".join(t_links)
+                               + " <span style='color:#94a3b8;font-size:11px'>（点击模拟/记录本局选择）</span></div>")
+                else:
+                    out.append("<div style='margin-bottom:8px;font-size:12px;color:#94a3b8;'>"
+                               "<span>开局预备流派（选入海克斯后自动转轨）</span></div>")
 
-            # 出装流向行（带图标、名称与箭头）
+            # 出装流向行（完整6神装：推荐靴子 + 3件核心必出 + 2件流派成型补强）
+            core_cnt = rune_build.get("core_count") or 3
             item_nodes = []
-            for it in rune_build["items"]:
+            boots_it = rune_build.get("boots")
+            if boots_it and boots_it.get("name"):
+                b_img = buildview.item(icons, boots_it, 26)
+                b_nm = escape(boots_it.get("name") or boots_it.get("id"))
+                boots_badge = " <span style='background:#334155;color:#e2e8f0;font-size:10px;padding:1px 4px;border-radius:3px;'>👟推荐靴子</span>"
+                if b_img and "<img" in b_img:
+                    item_nodes.append(f"<span style='vertical-align:middle;'>{b_img}</span> <b style='color:#e2e8f0'>{b_nm}</b>{boots_badge}")
+                else:
+                    item_nodes.append(f"<b style='color:#e2e8f0'>【{b_nm}】</b>{boots_badge}")
+            for idx, it in enumerate(rune_build["items"]):
                 img = buildview.item(icons, it, 28)
                 nm = escape(it.get("name") or it.get("id"))
-                if img and "<img" in img:
-                    item_nodes.append(f"<span style='vertical-align:middle;'>{img}</span> <b>{nm}</b>")
+                is_core = idx < core_cnt
+                if is_core:
+                    badge_bg = "#f59e0b" if is_adapted else "#3b82f6"
+                    badge_fg = "#0f172a" if is_adapted else "#f8fafc"
+                    badge_txt = "★符文必出" if is_adapted else "⚡流派核心"
+                    core_badge = f" <span style='background:{badge_bg};color:{badge_fg};font-size:10px;padding:1px 4px;border-radius:3px;font-weight:bold;'>{badge_txt}</span>"
+                    nm_color = "#fde68a" if is_adapted else "#93c5fd"
                 else:
-                    item_nodes.append(f"<b>【{nm}】</b>")
+                    core_badge = " <span style='background:#1e293b;color:#38bdf8;border:1px solid #0284c7;font-size:10px;padding:0px 4px;border-radius:3px;'>成型补强</span>"
+                    nm_color = "#f8fafc"
+                if img and "<img" in img:
+                    item_nodes.append(f"<span style='vertical-align:middle;'>{img}</span> <b style='color:{nm_color}'>{nm}</b>{core_badge}")
+                else:
+                    item_nodes.append(f"<b style='color:{nm_color}'>【{nm}】</b>{core_badge}")
             items_flow = " <span style='color:#64748b;font-weight:bold;font-size:14px'>→</span> ".join(item_nodes)
-            out.append(f"<div style='padding:6px 8px;background-color:#0f172a;border-radius:6px;margin-bottom:8px;'>{items_flow}</div>")
+            out.append(f"<div style='padding:8px 10px;background-color:#0f172a;border:1px solid #1e293b;border-radius:6px;margin-bottom:8px;'>{items_flow}</div>")
 
             # 联动原理解析
             expl = escape(rune_build.get("explanation", ""))
             if expl:
                 out.append(f"<div style='color:#cbd5e1;font-size:12px;line-height:1.5;'><b>💡 联动解析：</b>{expl}</div>")
 
+            # 后续最佳联动海克斯提示
+            next_combos = rune_build.get("next_combos") or []
+            if next_combos:
+                nc_links = []
+                for nc in next_combos[:3]:
+                    nc_links.append(
+                        f"<a href='add_aid:{nc['partner_id']}' style='color:#fbbf24;text-decoration:none;background:#1e1b18;padding:2px 6px;border-radius:4px;border:1px solid #f59e0b;'>"
+                        f"+ 【{escape(nc['partner_name'])}】→ 凑【{escape(nc['combo_name'])}】({nc['bonus']:+.1f}pp)</a>"
+                    )
+                out.append(f"<div style='margin-top:6px;font-size:12px;color:#fbbf24;'>"
+                           f"<b>🔮 下轮三选一重点找联动：</b>{' '.join(nc_links)}</div>")
+
             # 快捷选入常用/绝活海克斯按钮
-            top_augs = [a for a in d.get("augments", []) if a.get("id") and str(a["id"]) not in acquired][:5]
+            top_augs = [a for a in d.get("augments", []) if a.get("id") and str(a["id"]) not in [str(x) for x in acquired]][:5]
             if top_augs:
                 quick_links = []
                 for a in top_augs:
                     aname = escape(a.get("name") or a["id"])
                     aid = a["id"]
                     quick_links.append(f"<a href='add_aid:{aid}' style='color:#38bdf8;text-decoration:none;background:#1e293b;padding:2px 6px;border-radius:4px;border:1px solid #334155;'>+ {aname}</a>")
-                out.append(f"<div style='margin-top:8px;padding-top:6px;border-top:1px solid #1e293b;font-size:11px;color:#64748b;'>"
+                out.append(f"<div style='margin-top:8px;padding-top:6px;border-top:1px solid #1e293b;font-size:11px;color:#94a3b8;'>"
                            f"快捷选入/模拟海克斯：{' '.join(quick_links)}</div>")
 
             out.append("</div>")
@@ -1391,19 +1496,64 @@ class MainWindow(QMainWindow):
         top = [a for a in d.get("augments", []) if a.get("delta") is not None and a.get("sample") != "low"]
         top.sort(key=lambda a: -a["delta"])
         if top:
-            out.append("<b>推荐海克斯</b>")
+            out.append("<div style='margin-top:8px;margin-bottom:4px;'><b>推荐海克斯（含联动流派与对应必出装备）</b></div>")
             for a in top[:8]:
-                out.append(f"　{a['name']} <span style='color:#777'>{RARITY_CN.get(a.get('rarity'), '')}"
-                           f" {a.get('tier') or ''}</span> <b style='color:#2e9d5b'>{a['delta']:+.1f}</b>")
+                aid = str(a.get("id") or "")
+                prof = synergy.get_augment_synergy_profile(
+                    store, hid, aid,
+                    combo_synergy=synergy.evaluate_combo_synergies(aid, acquired),
+                    acquired_aids=acquired,
+                ) if aid else {}
+                syn_tag = ""
+                if prof.get("kind") == "combo":
+                    syn_tag = f" <span style='background:#fef3c7;color:#b45309;border:1px solid #f59e0b;border-radius:3px;padding:0 4px;font-size:11px;'>🔥 {escape(prof.get('build_name') or '组合联动')}</span>"
+                elif prof.get("kind") == "dual":
+                    syn_tag = f" <span style='background:#eff6ff;color:#1d4ed8;border:1px solid #3b82f6;border-radius:3px;padding:0 4px;font-size:11px;'>⚡ 绝活·{escape(prof.get('build_name') or '')}</span>"
+                elif prof.get("kind") == "pivot":
+                    syn_tag = f" <span style='background:#f0fdf4;color:#15803d;border:1px solid #22c55e;border-radius:3px;padding:0 4px;font-size:11px;'>🎯 质变·{escape(prof.get('build_name') or '')}</span>"
+                elif prof.get("potential_combos"):
+                    pc = prof["potential_combos"][0]
+                    syn_tag = f" <span style='color:#d97706;font-size:11px;'>🔗可配【{escape(pc['partner_name'])}】→【{escape(pc['combo_name'])}】</span>"
+
+                item_nodes = []
+                for it in (prof.get("items") or [])[:3]:
+                    img = buildview.item(icons, it, 20)
+                    nm = escape(it.get("name") or "")
+                    if img and "<img" in img:
+                        item_nodes.append(f"<span style='vertical-align:middle;'>{img}</span> <b>{nm}</b>")
+                    else:
+                        item_nodes.append(f"<b>{nm}</b>")
+                fup_parts = []
+                b_it = prof.get("boots")
+                if b_it and b_it.get("name"):
+                    fup_parts.append(f"👟{escape(b_it['name'])}")
+                for fit in (prof.get("followup_items") or [])[:2]:
+                    if fit.get("name"):
+                        fup_parts.append(escape(fit["name"]))
+                fup_str = f" <span style='color:#64748b;font-size:11px'>（补强：{' → '.join(fup_parts)}）</span>" if fup_parts else ""
+                item_str = f"　<span style='color:#0284c7;font-size:12px;'>💡对应装备：</span>" + "、".join(item_nodes) + fup_str if item_nodes else ""
+                pick_link = (
+                    f" <a href='add_aid:{aid}' style='color:#2563eb;font-size:11px;text-decoration:none;'>[+选入]</a>"
+                    if aid and aid not in [str(x) for x in acquired] else ""
+                )
+                out.append(
+                    f"　<b>{escape(a['name'])}</b> <span style='color:#777'>{RARITY_CN.get(a.get('rarity'), '')}"
+                    f" {a.get('tier') or ''}</span> <b style='color:#2e9d5b'>{a['delta']:+.1f}</b>"
+                    f"{syn_tag}{item_str}{pick_link}"
+                )
         return "<br>".join(out)
 
     def _render_offer(self, ev, show_win, pending=None):
         eng = getattr(self, "engine", None)
+        icons = getattr(eng, "icons", None) if eng else None
         cur_acq = getattr(eng, "state", {}).get("acquired_augments", []) if eng else []
+        default_card_style = "QFrame#card{border:1px solid #d7dbe3;border-radius:6px;background:#fbfcfe}"
         if not ev:
             self.offer_advice.setText("<span style='color:#777'>未在选海克斯</span>")
             for lab in self.offer_cards:
                 lab.setText("")
+                if lab.parentWidget():
+                    lab.parentWidget().setStyleSheet(default_card_style)
             for btn in getattr(self, "offer_pick_btns", []):
                 btn.setEnabled(False)
             if hasattr(self, "_update_acq_bar"):
@@ -1421,15 +1571,63 @@ class MainWindow(QMainWindow):
 
         for i, (lab, r) in enumerate(zip(self.offer_cards, ev["slots"])):
             btn = self.offer_pick_btns[i] if i < len(getattr(self, "offer_pick_btns", [])) else None
+            fr = lab.parentWidget()
             if pending and pending[r["index"]]:
                 lab.setText("<span style='color:#777'>识别中…</span>")
+                if fr:
+                    fr.setStyleSheet(default_card_style)
                 if btn:
                     btn.setEnabled(False)
                 continue
             v, col = VERDICT_CN.get(r["verdict"], VERDICT_CN["unknown"])
             if r["verdict"] == "best" and r.get("sample_warning"):
                 v = "相对较好，仅供参考"
-            lines = [f"<b style='color:{col}'>{v}</b>", f"<b>{r.get('name') or '未识别'}</b>"]
+            combo = r.get("combo_synergy") or {}
+            prof = r.get("synergy_profile") or {}
+            gate = combo.get("gate", 1.0)
+            net_syn = (combo.get("bonus", 0.0) + combo.get("penalty", 0.0)) * gate
+
+            # 卡片外框高亮：联动触发 > 绝活质变 > 首选 > 默认
+            if fr:
+                if combo.get("bonus", 0) * gate >= 1.0:
+                    fr.setStyleSheet("QFrame#card{border:2px solid #f59e0b;border-radius:8px;background:#fffdf5}")
+                elif combo.get("penalty", 0) * gate <= -2.0:
+                    fr.setStyleSheet("QFrame#card{border:2px solid #ef4444;border-radius:8px;background:#fff8f8}")
+                elif prof.get("kind") == "dual" and r["verdict"] == "best":
+                    fr.setStyleSheet("QFrame#card{border:2px solid #2563eb;border-radius:8px;background:#f8faff}")
+                elif r["verdict"] == "best":
+                    fr.setStyleSheet("QFrame#card{border:2px solid #2e9d5b;border-radius:8px;background:#f6fef9}")
+                else:
+                    fr.setStyleSheet(default_card_style)
+
+            # 顶部强提示横幅 + 结论
+            top_banner = ""
+            if combo.get("bonus", 0) * gate >= 1.0:
+                c_list = combo.get("combos") or []
+                c_title = f"🔥 触发【{escape(c_list[0]['name'])}】" if c_list else "🔥 触发海克斯联动"
+                top_banner = (
+                    f"<div style='background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:3px 6px;margin-bottom:4px;'>"
+                    f"<b style='color:#b45309;font-size:12px'>{c_title}</b> · <b style='color:{col}'>{v}</b></div>"
+                )
+            elif combo.get("penalty", 0) * gate <= -2.0:
+                top_banner = (
+                    f"<div style='background:#fee2e2;border:1px solid #ef4444;border-radius:4px;padding:3px 6px;margin-bottom:4px;'>"
+                    f"<b style='color:#b91c1c;font-size:12px'>⛔ 机制冲突避坑</b> · <b style='color:{col}'>{v}</b></div>"
+                )
+            elif prof.get("kind") == "dual":
+                top_banner = (
+                    f"<div style='background:#eff6ff;border:1px solid #3b82f6;border-radius:4px;padding:3px 6px;margin-bottom:4px;'>"
+                    f"<b style='color:#1d4ed8;font-size:12px'>⚡ 本英雄绝活质变</b> · <b style='color:{col}'>{v}</b></div>"
+                )
+            elif prof.get("kind") == "pivot":
+                top_banner = (
+                    f"<div style='background:#f0fdf4;border:1px solid #22c55e;border-radius:4px;padding:3px 6px;margin-bottom:4px;'>"
+                    f"<b style='color:#15803d;font-size:12px'>🎯 流派质变核心</b> · <b style='color:{col}'>{v}</b></div>"
+                )
+            else:
+                top_banner = f"<b style='color:{col}'>{v}</b>"
+
+            lines = [top_banner, f"<b style='font-size:14px'>{r.get('name') or '未识别'}</b>"]
             meta = [RARITY_CN.get(r.get("rarity"), "")]
             if r.get("tier"):
                 meta.append(f"{r['tier']}级")
@@ -1441,7 +1639,9 @@ class MainWindow(QMainWindow):
                 pbe = f"测试服 {r['pbe_games']} 局 · 胜率 {_pct(r['pbe_win'])}，" if r.get("pbe_games") else ""
                 lines.append(f"<span style='color:#777'>{pbe}{recommend.PBE_NOTE}</span>")
             if r.get("score") is not None:
-                s = f"{r['score']:+.1f}"
+                s = f"<b>{r['score']:+.1f}</b>"
+                if abs(net_syn) >= 0.1 and r.get("score_before_synergy") is not None:
+                    s += f" <span style='color:#b45309;font-size:11px'>(基准{r['score_before_synergy']:+.1f} / 联动{net_syn:+.1f})</span>"
                 if show_win and recommend.win_text(r):
                     s += " · " + recommend.win_text(r)
                 if r.get("thin") or r.get("sample_warning"):
@@ -1449,40 +1649,110 @@ class MainWindow(QMainWindow):
                     s += f" · <span style='color:#ff7a6b'>{warn}</span>"
                 lines.append(s)
 
-            # 联动加成与冲突提示（按机制契合折算后的实际值展示，和分数口径一致）
-            combo = r.get("combo_synergy")
+            # 联动加成与冲突提示（高对比度独立提示框）
             if combo:
-                gate = combo.get("gate", 1.0)
                 gate_note = f" <span style='color:#94a3b8;font-size:10px'>（机制契合折算 ×{gate:.0%}）</span>" if gate < 0.999 else ""
                 if combo.get("bonus", 0) > 0:
-                    lines.append(f"<b style='color:#f59e0b'>★ 联动加成：{combo['bonus'] * gate:+.1f}pp</b>{gate_note}")
+                    syn_box = [f"<b style='color:#f59e0b'>★ 联动加成：{combo['bonus'] * gate:+.1f}pp</b>{gate_note}"]
                     for reas in combo.get("reasons", []):
-                        lines.append(f"<span style='color:#fbbf24;font-size:11px'>{escape(reas)}</span>")
+                        syn_box.append(f"<div style='color:#fde68a;font-size:11px;margin-top:2px;'>{escape(reas)}</div>")
+                    lines.append(
+                        "<div style='margin-top:4px;padding:5px 7px;background-color:#1e1b18;border:1px solid #f59e0b;border-radius:5px;'>"
+                        + "".join(syn_box) + "</div>"
+                    )
                 if combo.get("penalty", 0) < 0:
-                    lines.append(f"<b style='color:#ef4444'>⚠ 机制冲突：{combo['penalty'] * gate:.1f}pp</b>{gate_note}")
+                    conf_box = [f"<b style='color:#ef4444'>⚠ 机制冲突：{combo['penalty'] * gate:.1f}pp</b>{gate_note}"]
                     for conf in combo.get("conflicts", []):
-                        lines.append(f"<span style='color:#f87171;font-size:11px'>{escape(conf)}</span>")
+                        conf_box.append(f"<div style='color:#fca5a5;font-size:11px;margin-top:2px;'>{escape(conf)}</div>")
+                    lines.append(
+                        "<div style='margin-top:4px;padding:5px 7px;background-color:#2a1215;border:1px solid #ef4444;border-radius:5px;'>"
+                        + "".join(conf_box) + "</div>"
+                    )
 
-            # 核心必出装备
-            must_buy = r.get("must_buy_items") or []
+            # 英雄绝活流派 / 潜在联动预告（尚未凑齐组合时也强提示）
+            if prof.get("kind") in ("dual", "pivot") and not (combo and combo.get("bonus", 0) > 0):
+                p_col = "#38bdf8" if prof.get("kind") == "dual" else "#4ade80"
+                lines.append(
+                    f"<div style='margin-top:4px;padding:4px 6px;background-color:#0f172a;border-left:3px solid {p_col};border-radius:4px;'>"
+                    f"<b style='color:{p_col};font-size:11px'>{escape(prof.get('synergy_line') or '')}</b>"
+                    + (f"<div style='color:#cbd5e1;font-size:11px;margin-top:2px;'>{escape(prof.get('sub_line') or '')}</div>" if prof.get("sub_line") else "")
+                    + "</div>"
+                )
+            if prof.get("potential_combos") and not (combo and combo.get("bonus", 0) > 0):
+                pc = prof["potential_combos"][0]
+                lines.append(
+                    f"<div style='margin-top:3px;color:#b45309;font-size:11px;'>"
+                    f"🔗 <b>可凑组合：</b>后续刷出【{escape(pc['partner_name'])}】→【{escape(pc['combo_name'])}】({pc['bonus']:+.1f}pp)</div>"
+                )
+
+            # 海克斯对应必出装备（带装备图标、名称、流派标题、定位标签 + 靴子与后续成型补强6神装）
+            must_buy = r.get("must_buy_items") or prof.get("items") or []
             if must_buy:
-                names = "、".join([it["name"] for it in must_buy[:3]])
-                lines.append(f"<div style='margin-top:4px;padding:3px 5px;background-color:#1e293b;border-radius:4px'>"
-                             f"<b style='color:#38bdf8'>💡 核心必出：</b><span style='color:#e2e8f0'>{escape(names)}</span></div>")
+                route_title = prof.get("route_title") or ""
+                route_span = f" <span style='color:#fbbf24;font-size:11px'>（{escape(route_title)}）</span>" if route_title else ""
+                item_rows = []
+                for it in must_buy[:3]:
+                    img = buildview.item(icons, it, 22)
+                    nm = escape(it.get("name") or "")
+                    tag = escape(it.get("tag") or "")
+                    tag_html = f" <span style='color:#fbbf24;font-size:10px'>{tag}</span>" if tag else ""
+                    if img and "<img" in img:
+                        item_rows.append(f"<div style='margin-top:2px;'><span style='vertical-align:middle;'>{img}</span> <b style='color:#f8fafc'>{nm}</b>{tag_html}</div>")
+                    else:
+                        item_rows.append(f"<div style='margin-top:2px;'><b style='color:#f8fafc'>• {nm}</b>{tag_html}</div>")
+                fup_nodes = []
+                boots_it = prof.get("boots")
+                if boots_it and boots_it.get("name"):
+                    b_img = buildview.item(icons, boots_it, 18)
+                    b_nm = escape(boots_it["name"])
+                    if b_img and "<img" in b_img:
+                        fup_nodes.append(f"👟<span style='vertical-align:middle;'>{b_img}</span> <span style='color:#cbd5e1'>{b_nm}</span>")
+                    else:
+                        fup_nodes.append(f"👟<span style='color:#cbd5e1'>{b_nm}</span>")
+                for fit in (prof.get("followup_items") or [])[:2]:
+                    f_img = buildview.item(icons, fit, 18)
+                    f_nm = escape(fit.get("name") or "")
+                    if not f_nm:
+                        continue
+                    if f_img and "<img" in f_img:
+                        fup_nodes.append(f"<span style='vertical-align:middle;'>{f_img}</span> <span style='color:#cbd5e1'>{f_nm}</span>")
+                    else:
+                        fup_nodes.append(f"<span style='color:#cbd5e1'>{f_nm}</span>")
+                if fup_nodes:
+                    item_rows.append(
+                        "<div style='margin-top:4px;padding-top:3px;border-top:1px dashed #334155;font-size:11px;color:#94a3b8;'>"
+                        "<b style='color:#7dd3fc'>👟 6神装后续补强：</b>"
+                        + " <span style='color:#64748b'>→</span> ".join(fup_nodes)
+                        + "</div>"
+                    )
+                names_plain = "、".join([it["name"] for it in must_buy[:3] if it.get("name")])
+                lines.append(
+                    f"<div style='margin-top:5px;padding:5px 7px;background-color:#1e293b;border:1px solid #38bdf8;border-radius:5px'>"
+                    f"<div><b style='color:#38bdf8'>💡 核心必出：</b><span style='color:#e2e8f0;font-size:11px'>{escape(names_plain)}</span>{route_span}</div>"
+                    + "".join(item_rows) + "</div>"
+                )
 
             lab.setText("<br>".join(lines))
 
-            # 按钮状态更新
+            # 按钮状态更新与选中高亮
             if btn:
                 aid = r.get("augment_id")
-                if aid and str(aid) in [str(a) for a in acquired]:
-                    btn.setText("✔ 本局已持")
-                    btn.setEnabled(False)
+                is_held = aid and str(aid) in [str(a) for a in acquired]
+                if is_held:
+                    btn.setText("★ 本局已选定 (点击取消/改选)")
+                    btn.setStyleSheet("QPushButton{background:#059669;color:#ffffff;font-weight:bold;border:1px solid #10b981;border-radius:4px;padding:5px;}"
+                                      "QPushButton:hover{background:#047857;border-color:#34d399;}")
+                    btn.setEnabled(True)
+                    if fr:
+                        fr.setStyleSheet("QFrame#card{border:2px solid #059669;border-radius:8px;background:#f0fdf4}")
                 elif aid:
-                    btn.setText("✔ 选入本局已持")
+                    btn.setText("🔘 选入此符文 (锁定并联动出装)")
+                    btn.setStyleSheet("QPushButton{background:#1e293b;color:#38bdf8;border:1px solid #0284c7;border-radius:4px;padding:5px;font-weight:bold;}"
+                                      "QPushButton:hover{background:#0f172a;color:#7dd3fc;border-color:#38bdf8;}")
                     btn.setEnabled(True)
                 else:
-                    btn.setText("✔ 选入本局已持")
+                    btn.setText("识别中…")
+                    btn.setStyleSheet("")
                     btn.setEnabled(False)
 
     # ---------- 窗口行为 ----------
