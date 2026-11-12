@@ -15,7 +15,7 @@ lolhex/
   data/
     store.py           官方资料（英雄、海克斯、装备）的读取和缓存；1.1.2 起运行时不连腾讯
     official.py        官方资料整包：内置优先，按云控从自己的服务器更新，对局外切换
-    public.py          自采统计数据：内置 + 从数据仓库下载更新，逐文件校验 SHA-256；分数段切换
+    public.py          统计数据：内置 + 从数据仓库下载更新，逐文件校验 SHA-256；分数段切换
     tencent.py         腾讯接口和解析
     bundled/           内置统计数据（scripts/update_data.py 生成，不要手改）
   vision/              截屏、选人界面识别、三选一识别、OCR
@@ -77,6 +77,7 @@ pwsh -NoProfile -File packaging\build.ps1
 | `features.same_name_once` | `true` | 同一行同名海克斯只算一张 |
 | `features.overlay_fit` | `true` | 分数缩放时浮层收回多出的 1 像素、不反复重摆 |
 | `features.cards_drop_early` | `true` | 选完英雄卡马上撤掉卡下胜率 |
+| `features.crash_log` | `true` | 闪退时记调用栈，下次启动写进日志；`false` 不开，下次启动生效。文件超过 1 MB 这次运行就不再记录 |
 | `features.companion_last_fg` | `true` | 客户端被别的程序盖着时点浮窗，选人标注跟着隐藏；`false` 退回点浮窗一律按客户端在前台算 |
 
 `features` 是应急开关：对所有认识它的版本（1.1.2 起）一起生效，不能按比例分批；新做法出问题时先关掉，修好发版后再开。
