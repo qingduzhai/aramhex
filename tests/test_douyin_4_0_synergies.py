@@ -382,3 +382,51 @@ def test_combos_26_to_31_evaluation():
     assert any("高压巨像全域熔炉" in r for r in res31["reasons"])
 
 
+def test_nov12_douyin_round_new_combos_and_pivots(store):
+    # 单曲红人 (3060) + 纯粹主义者 (2018)：资源转化满耦合
+    c1 = synergy.evaluate_combo_synergies("3060", ["2018"])
+    assert c1["bonus"] == 5.0
+    assert any("单曲纯粹轰天炮" in r for r in c1["reasons"])
+
+    # 深红钴蓝闪光 (3088) + 虚幻武器 (1029)：频次放大高耦合（共享 on_hit + cdr ≈ 0.9 → 5.0）
+    c2 = synergy.evaluate_combo_synergies("3088", ["1029"])
+    assert c2["bonus"] == 5.0
+    assert any("红蓝虚幻无限火力" in r for r in c2["reasons"])
+
+    # 迷人蝴蝶 (3163) + 蛋白粉奶昔 (1324)：治疗护盾资源转化
+    c3 = synergy.evaluate_combo_synergies("3163", ["1324"])
+    assert c3["bonus"] > 0
+    assert any("蛋白蝴蝶核弹流" in r for r in c3["reasons"])
+
+    # 珠光护手 (1048) + 大腕 (3018)：乘算双修爆伤
+    c4 = synergy.evaluate_combo_synergies("1048", ["3018"])
+    assert c4["bonus"] > 0
+    assert any("大腕法爆核弹" in r for r in c4["reasons"])
+
+    # 由心及物 (1056) + 巫妖大脑 (3094)：半神瑞天帝双转化
+    c5 = synergy.evaluate_combo_synergies("1056", ["3094"])
+    assert c5["bonus"] > 0
+    assert any("半神瑞天帝双转化" in r for r in c5["reasons"])
+
+    # 装甲冲击 (3049) + 泰坦的坚决 (1001)：避坑负联动警告
+    cf = synergy.evaluate_combo_synergies("3049", ["1001"])
+    assert cf["penalty"] == -3.5
+    assert any("泰坦的坚决" in r for r in cf["conflicts"])
+
+    # 弹跳蜜蜂 (3048) 与新版命运之武器 (3081) 锚点装备
+    assert "3048" in synergy.AUGMENT_PIVOT_ANCHORS
+    b_bee = synergy.get_augment_core_items("3048", store)
+    assert any(x["id"] == "2517" for x in b_bee)
+    b_destiny = synergy.get_augment_core_items("3081", store)
+    assert any(x["id"] == "2517" for x in b_destiny)
+
+    # 亚恒 (904) 与 菲奥娜 (114) 更新后流派档案
+    rb_zaahen = synergy.get_hero_rune_build("904", ["3078"], store)
+    assert rb_zaahen["is_rune_adapted"] is True
+    assert len(rb_zaahen["full_six_items"]) == 6
+    rb_fiora = synergy.get_hero_rune_build("114", ["3078"], store)
+    assert rb_fiora["is_rune_adapted"] is True
+    assert any(x["id"] == "2517" for x in rb_fiora["items"])
+
+
+
