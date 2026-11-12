@@ -428,5 +428,16 @@ def test_nov12_douyin_round_new_combos_and_pivots(store):
     assert rb_fiora["is_rune_adapted"] is True
     assert any(x["id"] == "2517" for x in rb_fiora["items"])
 
+    # 联盟张三新增：手镯+大腕 (3123+3018)、嗡嗡+纯粹 (3058+2018)、男枪/EZ/纳尔档案、登峰造极境/王冠之重
+    c_zw = synergy.evaluate_combo_synergies("3123", ["3018"])
+    assert c_zw["bonus"] > 0 and any("手镯大腕核弹R" in r for r in c_zw["reasons"])
+    c_bp = synergy.evaluate_combo_synergies("3058", ["2018"])
+    assert c_bp["bonus"] > 0 and any("嗡嗡纯粹急速流" in r for r in c_bp["reasons"])
+    assert "3159" in synergy.AUGMENT_PIVOT_ANCHORS
+    assert "3132" in synergy.AUGMENT_PIVOT_ANCHORS
+    assert synergy.get_hero_rune_build("104", ["3123"], store)["is_rune_adapted"] is True
+    assert synergy.get_hero_rune_build("81", ["3048"], store)["is_rune_adapted"] is True
+    assert synergy.get_hero_rune_build("150", ["3086"], store)["is_rune_adapted"] is True
+
 
 
