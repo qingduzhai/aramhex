@@ -439,5 +439,18 @@ def test_nov12_douyin_round_new_combos_and_pivots(store):
     assert synergy.get_hero_rune_build("81", ["3048"], store)["is_rune_adapted"] is True
     assert synergy.get_hero_rune_build("150", ["3086"], store)["is_rune_adapted"] is True
 
+    # 联盟张三100全量批次新增：双银不死(2157+1080)、终极唤醒联动(1349+2087/1058)、牙仙子(2083)、吸血鬼(8)、德莱文(119)
+    c_imm = synergy.evaluate_combo_synergies("2157", ["1080"])
+    assert c_imm["bonus"] > 0 and any("双银不死减伤流" in r for r in c_imm["reasons"])
+    c_ua = synergy.evaluate_combo_synergies("1349", ["2087"])
+    assert c_ua["bonus"] > 0 and any("终极唤醒大法师" in r for r in c_ua["reasons"])
+    c_up = synergy.evaluate_combo_synergies("1349", ["1058"])
+    assert c_up["bonus"] > 0 and any("终极冲拳无限Q" in r for r in c_up["reasons"])
+    assert "2083" in synergy.AUGMENT_PIVOT_ANCHORS
+    assert "2062" in synergy.AUGMENT_PIVOT_ANCHORS
+    assert "1002" in synergy.AUGMENT_PIVOT_ANCHORS
+    assert synergy.get_hero_rune_build("8", ["1205"], store)["is_rune_adapted"] is True
+    assert synergy.get_hero_rune_build("119", ["1004"], store)["is_rune_adapted"] is True
+
 
 
