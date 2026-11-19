@@ -23,6 +23,7 @@ def test_mainwindow_synergy_and_must_buy_items_ui(qapp, store, tmp_path):
     eng.state["phase"] = "ingame"
 
     overlay = MagicMock()
+    overlay.hotkey = None
     win = MainWindow(eng, overlay)
     win.show()
     try:
@@ -125,6 +126,7 @@ def test_mainwindow_and_control_panel_equipment_visibility(qapp, store, tmp_path
     eng._reevaluate()
 
     overlay = MagicMock()
+    overlay.hotkey = None
     win = MainWindow(eng, overlay)
     win.show()
     panel = ControlPanel(eng, "top-right")

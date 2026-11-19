@@ -83,11 +83,13 @@ def test_mainwindow_has_sync_buttons():
     engine.settings.my_rank = {}
     engine.settings.data_band = ""
     engine.settings.show_winrate = True
+    engine.settings.overlay_hotkey = ""
     engine.store.status.return_value = {"dataset": True, "dataset_patch": "16.21", "dataset_matches": 42000000}
     engine.store.heroes = {}
     engine.state = {"phase": "idle", "champ_select": None, "vision": {}, "hero_candidates": []}
 
     overlay = MagicMock()
+    overlay.hotkey = None
     mw = MainWindow(engine, overlay)
 
     assert hasattr(mw, "btn_sync_data")

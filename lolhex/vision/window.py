@@ -119,17 +119,63 @@ def add_companion(hwnd: int) -> None:
         _companions.add(int(hwnd))
 
 
-def lower_thread_priority() -> None:
-    """当前线程降到「低于正常」：游戏要用 CPU 时先让给游戏（只影响抢不到核的时候）。"""
+class _PowerThrottling(ctypes.Structure):
+    _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+
+
+# 识别线程优先级（设置 vision_priority）：below_normal 是 1.1.6 及以前、1.1.8 起的默认；lowest 是 1.1.7 的；
+# normal 留给云控试：核少的电脑（如 4 核 4 线程）识别线程排不上队时，实际耗时远大于 CPU 时间
+THREAD_PRIORITIES = {"normal": 0, "below_normal": -1, "lowest": -2}
+
+
+def set_vision_thread(priority: str = "below_normal", eco: bool = False, no_throttle: bool = False) -> bool:
+    """设置当前线程（识别线程）的优先级和效率模式，可以反复调用（云控改了就重设）：
+
+    - 优先级按 THREAD_PRIORITIES。不用 IDLE：低配电脑游戏把核占满时，识别会一直排不上队、认不出海克斯。
+    - eco=True 打开效率模式（EcoQoS，Windows 10 1709 起）：Intel 大小核上系统把它放到小核，其他 CPU 上降频跑。
+      1.1.7 默认打开，Intel 12～14 代大小核电脑上每次认字的 CPU 时间涨到 2～3 倍、整块扫描慢 4～8 倍。
+      eco=False 交还系统自己决定，和 1.1.6 没设置时一样；再加 no_throttle=True 是明确不要降频（系统的后台降频也不要）。
+    返回效率模式是否打开（没要求打开、旧系统不支持时返回 False，照常运行）。"""
     if not IS_WINDOWS:
-        return
+        return False
     try:
         k = ctypes.windll.kernel32
         k.GetCurrentThread.restype = wintypes.HANDLE
         k.SetThreadPriority.argtypes = (wintypes.HANDLE, ctypes.c_int)
-        k.SetThreadPriority(k.GetCurrentThread(), -1)  # THREAD_PRIORITY_BELOW_NORMAL
+        k.SetThreadPriority.restype = wintypes.BOOL
+        k.SetThreadPriority(k.GetCurrentThread(), THREAD_PRIORITIES.get(priority, -1))
     except (OSError, AttributeError):
-        pass  # 降不了就按原样跑
+        pass  # 设不了就按原样跑；实际是多少用 vision_thread_priority 读回
+    try:
+        k = ctypes.windll.kernel32
+        k.SetThreadInformation.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
+        k.SetThreadInformation.restype = wintypes.BOOL
+        # THREAD_POWER_THROTTLING_CURRENT_VERSION；ControlMask/StateMask 都是 EXECUTION_SPEED = 打开，
+        # ControlMask 是、StateMask 0 = 明确不降频，都是 0 = 交还系统
+        state = _PowerThrottling(1, 1, 1) if eco else _PowerThrottling(1, 1, 0) if no_throttle else _PowerThrottling(1, 0, 0)
+        ok = bool(k.SetThreadInformation(k.GetCurrentThread(), 3,  # ThreadPowerThrottling
+                                         ctypes.byref(state), ctypes.sizeof(state)))
+        return ok and eco
+    except (OSError, AttributeError):
+        return False
+
+
+def vision_thread_priority() -> str | None:
+    """当前线程实际的优先级（1.1.9）：THREAD_PRIORITIES 里的名字，别的值写数字；不是 Windows 或读不到返回 None。
+    云控对照试验靠它确认设上了，不只看要求的值。"""
+    if not IS_WINDOWS:
+        return None
+    try:
+        k = ctypes.windll.kernel32
+        k.GetCurrentThread.restype = wintypes.HANDLE
+        k.GetThreadPriority.argtypes = (wintypes.HANDLE,)
+        k.GetThreadPriority.restype = ctypes.c_int
+        v = k.GetThreadPriority(k.GetCurrentThread())
+    except (OSError, AttributeError):
+        return None
+    if v == 0x7FFFFFFF:  # THREAD_PRIORITY_ERROR_RETURN
+        return None
+    return next((name for name, p in THREAD_PRIORITIES.items() if p == v), str(v))
 
 
 # 最近一次在前台的、不是自己悬浮小窗的窗口。点浮窗之前在前台的是客户端/游戏，才按它仍在前台算；
@@ -211,6 +257,36 @@ def give_focus(hwnd: int) -> None:
     u = ctypes.windll.user32
     if u.IsWindow(hwnd) and not u.IsIconic(hwnd) and u.GetForegroundWindow() != hwnd:
         u.SetForegroundWindow(hwnd)
+
+
+def foreground_window() -> int:
+    """现在的前台窗口；不是 Windows 为 0。"""
+    if not IS_WINDOWS:
+        return 0
+    return int(ctypes.windll.user32.GetForegroundWindow() or 0)
+
+
+def set_no_activate(hwnd: int, on: bool) -> bool:
+    """窗口点了也不变成前台（WS_EX_NOACTIVATE，1.1.9）：鼠标点击、悬停照常收到，键盘一直归游戏。
+    返回是否改成功；不是 Windows、窗口没了返回 False。"""
+    if not IS_WINDOWS or not hwnd:
+        return False
+    try:
+        u = ctypes.windll.user32
+        if not u.IsWindow(hwnd):  # 窗口没了读出来是 0，会被当成「已清掉」
+            return False
+        get = getattr(u, "GetWindowLongPtrW", None) or u.GetWindowLongW
+        put = getattr(u, "SetWindowLongPtrW", None) or u.SetWindowLongW
+        get.restype = put.restype = ctypes.c_ssize_t
+        get.argtypes = (wintypes.HWND, ctypes.c_int)
+        put.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t)
+        old = get(hwnd, -20)  # GWL_EXSTYLE
+        new = old | 0x08000000 if on else old & ~0x08000000
+        if new != old:
+            put(hwnd, -20, new)
+        return bool(get(hwnd, -20) & 0x08000000) == on
+    except (OSError, AttributeError):
+        return False
 
 
 def left_button_clicked() -> bool:
