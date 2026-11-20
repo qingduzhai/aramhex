@@ -7,9 +7,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import random
+import shutil
 import threading
 import webbrowser
 from html import escape
@@ -25,7 +28,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGrid
 from .. import DATA_HOMEPAGE, HOMEPAGE, __version__, cloud, cloudsettings, i18n, logupload, patch, rank, recommend, update
 from ..config import is_portable
 from ..vision import window as win
-from ..data.public import BANDS, norm_band
+from ..data.public import BANDS, Dataset, check_manifest, newer_manifest, norm_band
 from . import autostart
 from .badgepos import POSITIONS as BADGE_POSITIONS, BadgePosPreview
 from . import buildview
@@ -41,6 +44,7 @@ VERDICT_CN = {"best": ("首选", "#2e9d5b"), "ok": ("可选", "#3b7dd8"), "rerol
               "unknown": ("未知", "#888"), "nodata": ("无数据", "#888")}
 PHASE_CN = {None: "未检测到英雄联盟", "client": "客户端（选英雄界面会自动识别英雄）", "ingame": "对局中"}
 VISION_CN = {"idle": "待机", "paused": "游戏不在前台，暂停", "scanning": "扫描中"}
+SAVED_TEXT = "<span style='color:#2e9d5b'>已保存</span>"
 
 
 def app_icon() -> QIcon:
@@ -52,6 +56,13 @@ def app_icon() -> QIcon:
 
 def _pct(x) -> str:
     return "—" if x is None else f"{x * 100:.1f}%"
+
+
+def _set_checked_quietly(widget, on: bool) -> None:
+    """改勾选状态但不触发 toggled（两处「开机自动启动」互相同步时用）。"""
+    old = widget.blockSignals(True)
+    widget.setChecked(on)
+    widget.blockSignals(old)
 
 
 def _progress_bar() -> QProgressBar:
@@ -129,38 +140,62 @@ class RankWorker(QThread):
             self.failed.emit("查询出错，请稍后再试")
 
 
-def _maybe_sync_from_local_repo(store) -> bool:
-    """如果本机存在 aramhex-data 本地仓库（如 D:\\aramhex-data），优先检查本地数据是否有更新。"""
-    import shutil
-    candidates = [
-        Path("D:/aramhex-data"),
-        Path(__file__).resolve().parent.parent.parent / "aramhex-data",
-        Path.cwd().parent / "aramhex-data",
-    ]
+def _maybe_sync_from_local_repo(store, candidates: list[Path] | None = None) -> bool:
+    """如果本机存在 aramhex-data 本地仓库（如 D:\\aramhex-data），按清单校验后原子同步本地更新的数据。"""
+    dest = getattr(store, "downloaded", None)
+    if not isinstance(dest, Path):
+        return False
+    if candidates is None:
+        candidates = [
+            Path("D:/aramhex-data"),
+            Path(__file__).resolve().parent.parent.parent / "aramhex-data",
+            Path.cwd().parent / "aramhex-data",
+        ]
     for local_dir in candidates:
         latest_file = local_dir / "latest.json"
         if not latest_file.is_file():
             continue
+        tmp = dest.with_name(dest.name + ".local.new")
         try:
-            local_manifest = json.loads(latest_file.read_text(encoding="utf-8"))
-            local_snap = str(local_manifest.get("snapshot_at") or "")
-            cur_snap = str(store.dataset.snapshot_at if getattr(store, "dataset", None) else "")
-            if local_snap and local_snap > cur_snap:
-                data_path = local_dir / local_manifest["path"]
-                dest = getattr(store, "downloaded", None)
-                if dest:
-                    dest.mkdir(parents=True, exist_ok=True)
-                    for root, dirs, files in os.walk(data_path):
-                        rel = Path(root).relative_to(data_path)
-                        (dest / rel).mkdir(parents=True, exist_ok=True)
-                        for f in files:
-                            shutil.copy2(Path(root) / f, dest / rel / f)
-                    shutil.copy2(latest_file, dest / "latest.json")
-                    if hasattr(store, "reload_dataset"):
-                        store.reload_dataset()
-                    return True
+            local_manifest = check_manifest(json.loads(latest_file.read_text(encoding="utf-8")))
+            if not newer_manifest(local_manifest, getattr(store, "dataset", None)):
+                continue
+            data_path = local_dir / local_manifest["path"]
+            shutil.rmtree(tmp, ignore_errors=True)
+            tmp.mkdir(parents=True, exist_ok=True)
+            for name, meta in local_manifest["files"].items():
+                src_file = data_path / name
+                if not src_file.is_file():
+                    raise FileNotFoundError(f"缺少本地数据文件：{name}")
+                body = src_file.read_bytes()
+                if hashlib.sha256(body).hexdigest() != meta["sha256"]:
+                    raise ValueError(f"{name} 的 SHA-256 校验不通过")
+                out = tmp / name
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(body)
+            (tmp / "latest.json").write_text(
+                json.dumps(local_manifest, ensure_ascii=False, indent=1, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            Dataset(tmp, "downloaded")
+            backup = dest.with_name(dest.name + ".local.old")
+            shutil.rmtree(backup, ignore_errors=True)
+            if dest.exists():
+                dest.rename(backup)
+            try:
+                tmp.rename(dest)
+            except OSError:
+                if backup.exists():
+                    backup.rename(dest)
+                raise
+            shutil.rmtree(backup, ignore_errors=True)
+            if hasattr(store, "reload_dataset"):
+                store.reload_dataset()
+            return True
         except Exception as e:
             logging.getLogger(__name__).warning("从本地数据仓库同步失败：%s", e)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
     return False
 
 
@@ -176,18 +211,21 @@ class DataSyncWorker(QThread):
     def run(self):
         try:
             local_changed = _maybe_sync_from_local_repo(self.store)
-            changed = False
+            changed = local_changed
             if hasattr(self.store, "sync_data"):
-                changed = self.store.sync_data(force=True, manual=True) or local_changed
+                changed = bool(self.store.sync_data(force=True, manual=True)) or local_changed
             if hasattr(self.store, "sync_official"):
                 try:
                     self.store.sync_official(force=True)
                 except Exception:
                     pass
             ds = getattr(self.store, "dataset", None)
-            matches_str = ""
-            if ds and hasattr(ds, "matches") and ds.matches:
-                matches_str = f"，共 {ds.matches / 1e4:.0f} 万局"
+            manifest = getattr(ds, "manifest", None) if ds else None
+            matches = manifest.get("matches") if isinstance(manifest, dict) else None
+            if not matches and ds:
+                raw_m = getattr(ds, "matches", None)
+                matches = raw_m if isinstance(raw_m, (int, float)) else None
+            matches_str = f"，共 {matches / 1e4:.0f} 万局" if matches else ""
             tail = f"（{ds.patch} 版本，截至 {str(ds.snapshot_at)[5:10]}{matches_str}）" if ds else ""
             if changed:
                 msg = f"海克斯统计数据已成功更新！\n{tail}"
@@ -460,7 +498,7 @@ class MainWindow(QMainWindow):
             lab.setTextFormat(Qt.RichText)
             lab.setWordWrap(True)
             lab.setAlignment(Qt.AlignTop)
-            lab.setMinimumWidth(170)
+            lab.setMinimumWidth(142)
             fr = _card()
             fl = QVBoxLayout(fr)
             fl.addWidget(lab, 1)
@@ -537,9 +575,20 @@ class MainWindow(QMainWindow):
         self.set_corner.setCurrentIndex(0 if s.overlay_corner == "top-right" else 1)
         self.set_corner.setToolTip("对局中收起详情后按钮隐藏，鼠标移到原位置附近再出现，点击可展开。\n"
                                    "选英雄、三选一推荐标签和未识别英雄的提示照常显示。")
+        # 详情的背景只在详情里点「背景」按钮换，设置页没有这一项：存设置、马上生效
+        panel = getattr(self.overlay, "panel", None)
+        if hasattr(panel, "bg_picked"):
+            panel.bg_picked.connect(self._bg_picked)
+        # 1.2.0：不再有详情快捷键（不好按），只靠鼠标唤出，这里写明怎么唤出
+        self.corner_hint = QLabel("对局中收起详情后按钮会藏起来，鼠标移到这个角附近就出现，点一下展开详情。")
+        self.corner_hint.setWordWrap(True)
+        self.corner_hint.setStyleSheet("color:#555")
         self.set_hotkey = QKeySequenceEdit(QKeySequence(s.overlay_hotkey))
         self.set_hotkey.setMaximumSequenceLength(1)
         self.set_hotkey.setClearButtonEnabled(True)
+        edit = self.set_hotkey.findChild(QLineEdit)
+        if edit is not None:  # Qt 默认的占位字是英文「Press shortcut」
+            edit.setPlaceholderText("点这里按下快捷键")
         self.set_hotkey.setToolTip("点击后按下组合键，包含 Ctrl 或 Alt，可再加 Shift；支持字母、数字、F1～F11。\n"
                                    "默认不绑定：点击浮窗或把鼠标移到按钮位置也能看详情；海克斯推荐自动出现，选完自动收起。\n"
                                    "只在游戏或选英雄在前台时启用。建议避开 F 键和游戏、聊天、录屏软件已用的键位。")
@@ -555,6 +604,13 @@ class MainWindow(QMainWindow):
         self.hotkey_status.setStyleSheet("color:#555")
         if hotkey_service:
             hotkey_service.status_changed.connect(self.hotkey_status.setText)
+        # 快捷键一行连同状态说明放一起，云控 features.overlay_hotkey 关着（默认）时整块不显示
+        self.hotkey_box = QWidget()
+        hotkey_lay = QVBoxLayout(self.hotkey_box)
+        hotkey_lay.setContentsMargins(0, 0, 0, 0)
+        hotkey_lay.addLayout(hotkey_row)
+        hotkey_lay.addWidget(self.hotkey_status)
+        self.hotkey_label = label("详情快捷键")
         # 三选一标签放卡片上方还是下方，右边的示意图跟着选项变
         self.set_badge = QComboBox()
         for code, name in BADGE_POSITIONS:
@@ -585,9 +641,10 @@ class MainWindow(QMainWindow):
         g.addWidget(self.set_lang, 0, 1, 1, 2)
         g.addWidget(label("浮窗位置"), 2, 0)
         g.addWidget(self.set_corner, 2, 1, 1, 2)
-        g.addWidget(label("详情快捷键"), 3, 0)
-        g.addLayout(hotkey_row, 3, 1, 1, 2)
-        g.addWidget(self.hotkey_status, 4, 1, 1, 2)
+        g.addWidget(self.corner_hint, 3, 1, 1, 2)
+        g.addWidget(self.hotkey_label, 4, 0)
+        g.addWidget(self.hotkey_box, 4, 1, 1, 2)
+        self._show_hotkey_row()
         # 示意图比下拉框高：左边下拉框下面接着放三个勾选项，示意图在右边占这四行
         g.addWidget(label("三选一标签"), 5, 0)
         g.addWidget(self.set_badge, 5, 1)
@@ -643,7 +700,21 @@ class MainWindow(QMainWindow):
         self.btn_check.setMinimumWidth(120)
         self.btn_check.setMinimumHeight(28)
         self.btn_check.clicked.connect(lambda: self.check_update(manual=True))
-        about_row.addWidget(self.btn_check, 0, Qt.AlignVCenter)
+        # 没有「保存」按钮：改完在检查更新下面短暂显示绿色「已保存」，平时空着。
+        # 右边这一栏本来比左边的说明矮，放这里页底不变高，设置项仍一屏放下
+        self.save_hint = QLabel()
+        self.save_hint.setAlignment(Qt.AlignCenter)
+        self.save_hint.setMinimumHeight(self.save_hint.fontMetrics().height())  # 空着也占一行：出现、消失时按钮不跳
+        self._saved_timer = QTimer(self)
+        self._saved_timer.setSingleShot(True)
+        self._saved_timer.timeout.connect(self.save_hint.clear)
+        side = QVBoxLayout()
+        side.setSpacing(4)
+        side.addStretch(1)
+        side.addWidget(self.btn_check)
+        side.addWidget(self.save_hint)
+        side.addStretch(1)
+        about_row.addLayout(side)
         # 设置项越来越多：放进可滚动区域，窗口矮的时候不会被压扁
         scroll = QScrollArea()
         scroll.setWidget(w)
@@ -665,7 +736,7 @@ class MainWindow(QMainWindow):
         self.rank_result.setText(text or "<span style='color:#777'>填自己的「名字#编号」，查区内排名，自动选对应分段</span>")
         r = (res or {}).get("results") or []
         if hasattr(self, "my_rank_label"):
-            self.my_rank_label.setText(f"你：{r[0]['band_name']}（前 {r[0]['top'] * 100:.1f}%）" if r else "")
+            self.my_rank_label.setText(f"你：{r[0]['band_name']}（前 {rank.top_pct(r[0]['top'])}）" if r else "")
 
     def _retire_when_done(self, attr: str, worker) -> None:
         """查询/更新线程跑完就删掉：父对象是主窗口，不删的话每查一次留一个 QThread（助手常驻托盘好几天）。"""
@@ -704,7 +775,7 @@ class MainWindow(QMainWindow):
         band = norm_band(res["results"][0]["band"])
         if silent and old and band != old_band and band in BANDS:
             # 查分库更新后自动重查，分段变了：告诉玩家；参考分段原来跟着查分选的，就跟着换
-            self._toast(f"查分数据更新了：你现在是{BANDS[band]}（前 {res['results'][0]['top'] * 100:.1f}%），"
+            self._toast(f"查分数据更新了：你现在是{BANDS[band]}（前 {rank.top_pct(res['results'][0]['top'])}），"
                         f"原来是{BANDS.get(old_band, old_band)}")
             if (s.data_band or "") == old_band:
                 silent = False
@@ -827,14 +898,11 @@ class MainWindow(QMainWindow):
                 self.engine.set_game_lang(s.game_lang)
             if "check_data_updates" in changed and hasattr(self.engine.store, "check_updates"):
                 self.engine.store.check_updates = s.check_data_updates
+            if "overlay_bg" in changed and hasattr(self, "overlay"):
+                self.overlay.apply_bg()
             if changed & {"overlay", "overlay_corner"} and hasattr(self, "overlay"):
                 self.overlay.set_visible(s.overlay)
                 self.overlay.panel.corner = s.overlay_corner
-                act = getattr(getattr(self, "tray", None), "act_overlay", None)
-                if act is not None:  # 托盘「显示游戏浮窗」的勾跟着变
-                    act.blockSignals(True)
-                    act.setChecked(s.overlay)
-                    act.blockSignals(False)
             self._sync_settings_form()
         seen = s.extra.get("seen_force") if isinstance(s.extra.get("seen_force"), list) else []
         for rid, reason in res["reasons"]:
@@ -866,13 +934,25 @@ class MainWindow(QMainWindow):
                 w.blockSignals(old)
         self.badge_preview.set_position(s.badge_position)
 
+    def _show_hotkey_row(self) -> None:
+        """1.2.0 起设置页不显示「详情快捷键」，「浮窗位置」下面写怎么用鼠标唤出；
+        云控 features.overlay_hotkey=true 退回 1.1.9（快捷键一行显示，说明不显示）。"""
+        on = cloud.feature("overlay_hotkey", False)
+        self.hotkey_label.setVisible(on)
+        self.hotkey_box.setVisible(on)
+        self.corner_hint.setVisible(not on)
+
     def _apply_cloud(self, cfg: dict):
         if hasattr(self.engine, "cloud_changed"):
             self.engine.cloud_changed()
+        if hasattr(self, "hotkey_box"):
+            self._show_hotkey_row()  # 云控 features.overlay_hotkey 开关变了：设置页跟着变
         try:
             self._apply_cloud_settings(cfg)
         except Exception:
             logging.getLogger(__name__).exception("云控设置出错")
+        if hasattr(self, "overlay"):
+            self.overlay.apply_bg()  # 云控 features.overlay_bg 开关变了：详情的背景、按钮跟着变
         try:
             logupload.apply_verbose(self.engine.settings, cfg)
         except Exception:
@@ -945,14 +1025,28 @@ class MainWindow(QMainWindow):
         s.set_by_user("overlay_hotkey", text)
         self._write_settings()
 
+    def _bg_picked(self, code: str) -> None:
+        """详情里点了「背景」按钮：记成玩家选的（以后云控改默认值不碰），马上生效并写进设置文件。"""
+        self.engine.settings.set_by_user("overlay_bg", code)
+        self.overlay.apply_bg()
+        self._write_settings()
+
     def _autostart_edited(self, on: bool) -> None:
         try:
             autostart.set_enabled(on)
         except OSError as e:
-            old = self.set_auto.blockSignals(True)
-            self.set_auto.setChecked(not on)
-            self.set_auto.blockSignals(old)
+            self.sync_autostart()
             QMessageBox.warning(self, "开机自启", f"设置失败：{e}")
+        else:
+            self._flash_saved()
+        tray = getattr(self, "tray", None)
+        if tray is not None:  # 托盘菜单的勾跟着变
+            tray.sync_autostart()
+
+    def sync_autostart(self) -> None:
+        """设置页「开机自动启动」按注册表的实际状态重新显示（托盘改了、写失败时）。"""
+        if hasattr(self, "set_auto"):
+            _set_checked_quietly(self.set_auto, autostart.is_enabled())
 
     def _settings_edited(self, *_):
         """设置页任意一项改了：马上生效并写进设置文件（没有「保存」按钮）。"""
@@ -995,9 +1089,18 @@ class MainWindow(QMainWindow):
         """写设置文件；写不进去只提醒一次，免得每改一项弹一次。"""
         if self.engine.settings.save():
             self._save_warned = False
+            self._flash_saved()
         elif not getattr(self, "_save_warned", False):
             self._save_warned = True
             QMessageBox.warning(self, "设置", "设置文件写不进去，改动关掉助手后会丢失。")
+
+    def _flash_saved(self) -> None:
+        """设置页没有「保存」按钮：改完在页底短暂显示「已保存」，玩家知道改动已经写进去了。"""
+        hint = getattr(self, "save_hint", None)
+        if hint is None:
+            return
+        hint.setText(SAVED_TEXT)
+        self._saved_timer.start(2000)
 
     def _recalibrate(self):
         self.engine.reset_calibration()
@@ -1847,10 +1950,6 @@ class Tray(QSystemTrayIcon):
         self.setToolTip(f"海克斯大乱斗助手 v{__version__}")
         m = QMenu()
         m.addAction("打开主界面", window.show_and_raise)
-        self.act_overlay = QAction("显示游戏浮窗", m, checkable=True)
-        self.act_overlay.setChecked(engine.settings.overlay)
-        self.act_overlay.toggled.connect(self._toggle_overlay)
-        m.addAction(self.act_overlay)
         m.addAction("重新识别", engine.rescan)
         m.addAction("🔄 更新海克斯数据", lambda: (window.show_and_raise(), window.sync_data_manually(interactive=True)))
         m.addAction("检查更新", lambda: (window.show_and_raise(), window.check_update(manual=True)))
@@ -1859,6 +1958,7 @@ class Tray(QSystemTrayIcon):
         self.act_auto.setChecked(autostart.is_enabled())
         self.act_auto.toggled.connect(self._toggle_auto)
         m.addAction(self.act_auto)
+        m.aboutToShow.connect(self.sync_autostart)  # 设置页、别的程序改过注册表：打开菜单时按实际状态显示
         m.addSeparator()
         m.addAction("退出", self.quit)
         self.setContextMenu(m)
@@ -1872,22 +1972,16 @@ class Tray(QSystemTrayIcon):
         if reason in (QSystemTrayIcon.DoubleClick, QSystemTrayIcon.Trigger):
             self.window.show_and_raise()
 
-    def _toggle_overlay(self, on: bool):
-        s = self.engine.settings
-        s.set_by_user("overlay", on)  # 云控正在强制时只记下玩家要的值
-        s.save()
-        self.overlay.set_visible(s.overlay)
-        if s.overlay != on:
-            self.act_overlay.blockSignals(True)
-            self.act_overlay.setChecked(s.overlay)
-            self.act_overlay.blockSignals(False)
-            self.showMessage("海克斯大乱斗助手", "浮窗现在按官方临时设置，撤掉后改回你选的", app_icon(), 6000)
+    def sync_autostart(self) -> None:
+        _set_checked_quietly(self.act_auto, autostart.is_enabled())
 
     def _toggle_auto(self, on: bool):
         try:
             autostart.set_enabled(on)
-        except OSError:
-            pass
+        except OSError as e:
+            self.sync_autostart()  # 没写进去：勾改回实际状态（1.1.9 以前勾变了、实际没写，玩家不知道）
+            self.showMessage("开机自动启动", f"设置失败：{e}", app_icon(), 6000)
+        self.window.sync_autostart()
 
     def _tooltip(self):
         s = self.engine.snapshot()

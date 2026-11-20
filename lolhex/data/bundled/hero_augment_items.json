@@ -1472,11 +1472,11 @@
      "wins": 11253
     },
     {
-     "games": 43800,
-     "item": "3032",
+     "games": 18977,
+     "item": "6676",
      "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 22364
+     "name": "收集者",
+     "wins": 9552
     },
     {
      "games": 27046,
@@ -1591,13 +1591,6 @@
    "eligible_wins": 240361,
    "items": [
     {
-     "games": 90435,
-     "item": "3032",
-     "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 56326
-    },
-    {
      "games": 84483,
      "item": "3153",
      "low_sample": false,
@@ -1610,6 +1603,13 @@
      "low_sample": false,
      "name": "无穷饥渴",
      "wins": 47098
+    },
+    {
+     "games": 36459,
+     "item": "3031",
+     "low_sample": false,
+     "name": "无尽之刃",
+     "wins": 19634
     }
    ],
    "note": "样本太少，暂无装备参考",
@@ -1885,11 +1885,11 @@
    "eligible_wins": 153563,
    "items": [
     {
-     "games": 66299,
-     "item": "3032",
+     "games": 48026,
+     "item": "3153",
      "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 34039
+     "name": "破败王者之刃",
+     "wins": 26530
     },
     {
      "games": 51680,
@@ -2305,18 +2305,18 @@
      "wins": 5706
     },
     {
-     "games": 29657,
-     "item": "3032",
-     "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 15250
-    },
-    {
      "games": 12856,
      "item": "3036",
      "low_sample": false,
      "name": "多米尼克领主的致意",
      "wins": 6527
+    },
+    {
+     "games": 4988,
+     "item": "3031",
+     "low_sample": false,
+     "name": "无尽之刃",
+     "wins": 2409
     }
    ],
    "note": "样本太少，暂无装备参考",
@@ -2340,11 +2340,11 @@
    "eligible_wins": 220241,
    "items": [
     {
-     "games": 84764,
-     "item": "3032",
+     "games": 59511,
+     "item": "3153",
      "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 45306
+     "name": "破败王者之刃",
+     "wins": 32644
     },
     {
      "games": 73782,
@@ -4341,18 +4341,18 @@
    "eligible_wins": 98613,
    "items": [
     {
+     "games": 26045,
+     "item": "3153",
+     "low_sample": false,
+     "name": "破败王者之刃",
+     "wins": 14364
+    },
+    {
      "games": 31951,
      "item": "3036",
      "low_sample": false,
      "name": "多米尼克领主的致意",
      "wins": 17018
-    },
-    {
-     "games": 43341,
-     "item": "3032",
-     "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 22802
     },
     {
      "games": 34213,
@@ -4474,11 +4474,11 @@
      "wins": 52825
     },
     {
-     "games": 72788,
-     "item": "3032",
+     "games": 70185,
+     "item": "6695",
      "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 38715
+     "name": "巨蛇之牙",
+     "wins": 37604
     },
     {
      "games": 96686,
@@ -4642,11 +4642,11 @@
      "wins": 26313
     },
     {
-     "games": 21534,
-     "item": "3032",
+     "games": 19185,
+     "item": "6695",
      "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 10899
+     "name": "巨蛇之牙",
+     "wins": 10006
     }
    ],
    "note": "样本太少，暂无装备参考",
@@ -5713,13 +5713,6 @@
    "eligible_wins": 197066,
    "items": [
     {
-     "games": 111013,
-     "item": "3032",
-     "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 67681
-    },
-    {
      "games": 76333,
      "item": "3153",
      "low_sample": false,
@@ -5732,6 +5725,13 @@
      "low_sample": false,
      "name": "无穷饥渴",
      "wins": 38864
+    },
+    {
+     "games": 20437,
+     "item": "3036",
+     "low_sample": false,
+     "name": "多米尼克领主的致意",
+     "wins": 11332
     }
    ],
    "note": "样本太少，暂无装备参考",
@@ -6014,11 +6014,11 @@
      "wins": 27395
     },
     {
-     "games": 84135,
-     "item": "3032",
+     "games": 26168,
+     "item": "6672",
      "low_sample": false,
-     "name": "育恩塔尔荒野箭",
-     "wins": 44690
+     "name": "海妖杀手",
+     "wins": 13849
     },
     {
      "games": 43484,

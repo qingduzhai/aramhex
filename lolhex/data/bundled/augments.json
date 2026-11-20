@@ -591,6 +591,14 @@
   "name": "杀意翻涌",
   "rarity": "silver"
  },
+ "2032": {
+  "name": "鲨鱼诱饵",
+  "rarity": "gold"
+ },
+ "2043": {
+  "name": "自然即是治愈",
+  "rarity": "gold"
+ },
  "2054": {
   "name": "三重射击",
   "rarity": "prismatic"
@@ -631,6 +639,10 @@
   "name": "连锁反应",
   "rarity": "gold"
  },
+ "2083": {
+  "name": "牙仙子",
+  "rarity": "gold"
+ },
  "2087": {
   "name": "大法师",
   "rarity": "prismatic"
@@ -638,6 +650,10 @@
  "2088": {
   "name": "下雪天",
   "rarity": "silver"
+ },
+ "2091": {
+  "name": "无尽大杀四方",
+  "rarity": "gold"
  },
  "2096": {
   "name": "小小的额外帮助",
@@ -663,9 +679,21 @@
   "name": "狙神飞星",
   "rarity": "gold"
  },
+ "2104": {
+  "name": "灵魄炸弹",
+  "rarity": "prismatic"
+ },
+ "2107": {
+  "name": "濒死悟道",
+  "rarity": "prismatic"
+ },
  "2111": {
   "name": "邦！",
   "rarity": "gold"
+ },
+ "2115": {
+  "name": "软弹啪叽抓",
+  "rarity": "prismatic"
  },
  "2116": {
   "name": "威能之追求",
@@ -681,6 +709,10 @@
  },
  "2125": {
   "name": "前进时间到",
+  "rarity": "silver"
+ },
+ "2127": {
+  "name": "大师铸就",
   "rarity": "silver"
  },
  "2129": {
@@ -898,5 +930,21 @@
  "3173": {
   "name": "厄运",
   "rarity": "gold"
+ },
+ "3262": {
+  "name": "史莱姆时间",
+  "rarity": "silver"
+ },
+ "3263": {
+  "name": "超坚定风采",
+  "rarity": "gold"
+ },
+ "3264": {
+  "name": "秘术卫士",
+  "rarity": "silver"
+ },
+ "3265": {
+  "name": "坚不可破",
+  "rarity": "silver"
  }
 }
